@@ -1,0 +1,50 @@
+name: WorkLog API · CI y despliegue
+
+on:
+  pull_request:
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+
+jobs:
+  # Compila con advertencias como errores y corre las pruebas (unitarias y de arquitectura).
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet restore
+      - run: dotnet build --no-restore -c Release
+      - run: dotnet test --no-build -c Release
+
+  # Un job por entorno: develop → dev, main → producción. Un push nunca despliega a dos App Service.
+  deploy:
+    needs: build-test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'production' || 'development' }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      # Solo el API: publicar la solución deja varios runtimeconfig.json y App Service no sabe cuál arrancar.
+      - run: dotnet publish src/WorkLog.Api/WorkLog.Api.csproj -c Release -o ${{ runner.temp }}/app
+      - run: cd ${{ runner.temp }}/app && zip -qr ${{ runner.temp }}/app.zip .
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ vars.AZURE_WEBAPP_NAME }}
+          package: ${{ runner.temp }}/app.zip
+          type: zip
+          clean: true
+          restart: true
