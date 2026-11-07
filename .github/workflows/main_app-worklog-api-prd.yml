@@ -26,8 +26,9 @@ jobs:
       - name: Build with dotnet
         run: dotnet build --configuration Release
 
+      # Solo el API: publicar la solución deja varios runtimeconfig.json y App Service no sabe cuál arrancar.
       - name: dotnet publish
-        run: dotnet publish -c Release -o ${{env.DOTNET_ROOT}}/myapp
+        run: dotnet publish src/WorkLog.Api/WorkLog.Api.csproj -c Release -o ${{env.DOTNET_ROOT}}/myapp
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
@@ -47,7 +48,10 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: .net-app
-      
+
+      - name: Package app
+        run: zip -qr ${{ runner.temp }}/app.zip .
+
       - name: Login to Azure
         uses: azure/login@v2
         with:
@@ -61,5 +65,8 @@ jobs:
         with:
           app-name: 'app-worklog-api-prd'
           slot-name: 'Production'
-          package: .
-          
+          package: ${{ runner.temp }}/app.zip
+          type: zip
+          # clean retira los runtimeconfig.json de pruebas que dejó el despliegue anterior.
+          clean: true
+          restart: true

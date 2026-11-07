@@ -19,12 +19,12 @@ jobs:
       - run: dotnet build --no-restore -c Release
       - run: dotnet test --no-build -c Release
 
-  # Un job por entorno: develop → dev, main → producción. Un push nunca despliega a dos App Service.
+  # Solo develop → dev. Producción la despliega main_app-worklog-api-prd.yml, el workflow conectado desde Azure.
   deploy:
     needs: build-test
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && github.ref_name == 'develop'
     runs-on: ubuntu-latest
-    environment: ${{ github.ref_name == 'main' && 'production' || 'development' }}
+    environment: development
     permissions:
       id-token: write
       contents: read
