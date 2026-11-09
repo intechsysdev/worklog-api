@@ -3517,7 +3517,7 @@
         "tags": [
           "Control de dispositivos"
         ],
-        "summary": "Verifica los 5 puntos de MobiControl.",
+        "summary": "Verifica el vínculo con ONE, la conexión con MobiControl y las órdenes de jornada.",
         "responses": {
           "200": {
             "description": "OK",
@@ -3580,6 +3580,85 @@
                   "items": {
                     "type": "string"
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/one": {
+      "get": {
+        "tags": [
+          "Integraciones"
+        ],
+        "summary": "Vínculo de la empresa con INTECHSYS ONE y lo que ONE responde con él. Nunca incluye el secreto.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OneLinkDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Integraciones"
+        ],
+        "summary": "Guarda la credencial solo si ONE la acepta y es de esta empresa y de WorkLog. El secreto se guarda cifrado.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveOneLinkCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OneLinkDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Integraciones"
+        ],
+        "summary": "Quita la credencial de ONE: WorkLog deja de leer la consola de MobiControl.",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/one/check": {
+      "post": {
+        "tags": [
+          "Integraciones"
+        ],
+        "summary": "Vuelve a preguntarle a ONE, sin usar la caché.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OneLinkDto"
                 }
               }
             }
@@ -5107,7 +5186,10 @@
             "format": "date-time"
           },
           "enrolledAt": {
-            "type": "string",
+            "type": [
+              "null",
+              "string"
+            ],
             "format": "date-time"
           },
           "memberId": {
@@ -6085,6 +6167,69 @@
           "Block"
         ],
         "description": "Qué hacer si MobiControl no responde al iniciar la jornada."
+      },
+      "OneLinkDto": {
+        "required": [
+          "linked",
+          "apiKeyHint",
+          "linkedAt",
+          "reachable",
+          "tenantName",
+          "mobiControlConfigured",
+          "mobiControlHost",
+          "missingVariables",
+          "problem"
+        ],
+        "type": "object",
+        "properties": {
+          "linked": {
+            "type": "boolean"
+          },
+          "apiKeyHint": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "linkedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "reachable": {
+            "type": "boolean"
+          },
+          "tenantName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "mobiControlConfigured": {
+            "type": "boolean"
+          },
+          "mobiControlHost": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "missingVariables": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "problem": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "Vínculo de la empresa con ONE y lo que ONE responde con él. Nunca incluye el secreto.\r\nProblem explica, en palabras para quien administra, qué falta o qué falló."
       },
       "OneTenantAccess": {
         "required": [
@@ -7399,6 +7544,27 @@
               "string"
             ],
             "format": "uuid"
+          }
+        }
+      },
+      "SaveOneLinkCommand": {
+        "required": [
+          "apiKey",
+          "apiSecret"
+        ],
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "apiSecret": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -9547,6 +9713,9 @@
     },
     {
       "name": "Control de dispositivos"
+    },
+    {
+      "name": "Integraciones"
     }
   ]
 }

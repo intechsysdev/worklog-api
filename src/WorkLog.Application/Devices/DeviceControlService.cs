@@ -39,7 +39,7 @@ public sealed record DeviceRowDto(
     bool Online,
     int? BatteryPercent,
     DateTimeOffset? LastSeenAt,
-    DateTimeOffset EnrolledAt,
+    DateTimeOffset? EnrolledAt,
     Guid? MemberId,
     string? MemberName,
     bool WorkdayOpen,
@@ -72,8 +72,8 @@ public interface IDeviceOrchestrator
     Task OnWorkdayClosedAsync(Member member, CancellationToken ct = default);
 
     /// <summary>
-    /// Si las apps de la persona dependen de la jornada: consola conectada, equipo asignado y su sede
-    /// o grupo dentro del alcance. Sin consola no hay control, diga lo que diga lo guardado.
+    /// Si las apps de la persona dependen de la jornada: adaptador con órdenes de jornada, equipo asignado y su sede
+    /// o grupo dentro del alcance. Sin órdenes no hay control, diga lo que diga lo guardado.
     /// </summary>
     Task<bool> ControlsAsync(Member member, CancellationToken ct = default);
 
@@ -97,12 +97,12 @@ internal sealed class DeviceOrchestrator(
         _settings ??= await settingsRepository.GetAsync(ct) ?? DeviceControlSettings.Default(tenant.TenantId ?? Guid.Empty);
 
     public async Task<bool> ControlsAsync(Member member, CancellationToken ct = default) =>
-        gateway.IsConnected && member.DeviceId is not null
+        gateway.CanControlWorkday && member.DeviceId is not null
                             && (await SettingsAsync(ct)).AppliesTo(member.BranchId, member.WorkGroupId);
 
     public async Task<bool> OnWorkdayOpeningAsync(Member member, CancellationToken ct = default)
     {
-        // Sin control (por ejemplo, sin consola conectada) la jornada no espera a MobiControl.
+        // Sin control (por ejemplo, sin órdenes de jornada en el adaptador) la jornada no espera a MobiControl.
         if (!await ControlsAsync(member, ct)) return true;
 
         var settings = await SettingsAsync(ct);
@@ -158,9 +158,9 @@ internal sealed class DeviceControlService(
     public async Task<OperationResult<DeviceControlSettingsDto>> SaveSettingsAsync(SaveDeviceControlCommand command, CancellationToken ct = default)
     {
         // Una verificación guardada cuando WorkLog usaba el simulador no habilita activar sin consola real.
-        if (command.Enabled && !gateway.IsConnected)
+        if (command.Enabled && !gateway.CanControlWorkday)
             return OperationResult<DeviceControlSettingsDto>.Invalid(
-                "WorkLog todavía no está conectado con MobiControl en esta empresa.", null, "device.not_connected");
+                "WorkLog todavía no puede enviar órdenes a MobiControl en esta empresa: el control de apps aún no se puede activar.", null, "device.not_connected");
 
         var settings = await EnsureSettingsAsync(ct);
         var wasEnabled = settings.Enabled;
@@ -253,9 +253,9 @@ internal sealed class DeviceControlService(
         return settings;
     }
 
-    /// <summary>Sin consola conectada no se muestra encendido ni verificado, aunque lo diga lo guardado.</summary>
+    /// <summary>Sin órdenes de jornada no se muestra encendido ni verificado, aunque lo diga lo guardado.</summary>
     private DeviceControlSettingsDto ToDto(DeviceControlSettings s) => new(
-        gateway.IsConnected && s.Enabled, s.BranchIds, s.GroupIds, s.WarningMinutes, s.LogoutSharedOnClose, s.OfflinePolicy,
+        gateway.CanControlWorkday && s.Enabled, s.BranchIds, s.GroupIds, s.WarningMinutes, s.LogoutSharedOnClose, s.OfflinePolicy,
         s.CorporateApps, s.AlwaysAvailableApps, DeviceControlSettings.FixedApps, s.LastVerifiedAt,
-        gateway.IsConnected && s.LastVerificationPassed);
+        gateway.CanControlWorkday && s.LastVerificationPassed);
 }

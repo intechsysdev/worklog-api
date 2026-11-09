@@ -43,6 +43,7 @@ public static class DependencyInjection
         services.AddScoped<IAuditService, AuditService>();
         services.AddScoped<Devices.IDeviceOrchestrator, Devices.DeviceOrchestrator>();
         services.AddScoped<Devices.IDeviceControlService, Devices.DeviceControlService>();
+        services.AddScoped<Integrations.IOneLinkService, Integrations.OneLinkService>();
         services.AddScoped<IWorkdayAutomation, WorkdayAutomation>();
 
         return services;

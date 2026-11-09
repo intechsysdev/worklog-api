@@ -108,7 +108,7 @@ public sealed record ManagedDevice(
     bool Online,
     int? BatteryPercent,
     DateTimeOffset? LastSeenAt,
-    DateTimeOffset EnrolledAt);
+    DateTimeOffset? EnrolledAt);
 
 public sealed record VerificationCheck(string Code, string Name, bool Passed, string Detail);
 
@@ -124,10 +124,11 @@ public sealed record GatewayResult(DeviceCommandStatus Status, string? Error)
 public interface IDeviceManagementGateway
 {
     /// <summary>
-    /// False mientras la empresa no tenga una consola conectada: no hay equipos, la verificación
-    /// no pasa y la jornada no espera a MobiControl.
+    /// Si el adaptador puede dar las órdenes de jornada (WL_JORNADA y cierre de Shared Device).
+    /// Mientras sea false, el control de apps no se activa y la jornada no espera a MobiControl,
+    /// aunque la consola responda las lecturas.
     /// </summary>
-    bool IsConnected { get; }
+    bool CanControlWorkday { get; }
 
     Task<IReadOnlyList<ManagedDevice>> ListDevicesAsync(CancellationToken ct = default);
 

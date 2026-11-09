@@ -12,4 +12,7 @@
   <ItemGroup>
     <ProjectReference Include="..\WorkLog.Application\WorkLog.Application.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="WorkLog.UnitTests" />
+  </ItemGroup>
 </Project>

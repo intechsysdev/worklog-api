@@ -13,6 +13,9 @@ internal sealed class CompanyConfiguration : IEntityTypeConfiguration<Company>
         builder.Property(x => x.Name).HasMaxLength(160);
         builder.Property(x => x.Slug).HasMaxLength(80);
         builder.Property(x => x.CountryCode).HasMaxLength(2).IsFixedLength();
+        builder.Property(x => x.OneApiKey).HasMaxLength(200);
+        builder.Property(x => x.OneApiSecretProtected).HasMaxLength(2000);
+        builder.Ignore(x => x.HasOneCredential);
     }
 }
 

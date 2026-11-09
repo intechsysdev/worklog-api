@@ -5,6 +5,7 @@ using WorkLog.Application.Auditing;
 using WorkLog.Application.Common;
 using WorkLog.Application.Devices;
 using WorkLog.Application.Hours;
+using WorkLog.Application.Integrations;
 using WorkLog.Application.Payroll;
 using WorkLog.Application.Requests;
 using WorkLog.Domain.Absences;
@@ -201,7 +202,8 @@ public static class Phase2Endpoints
             .WithSummary("Guarda la configuración. Activar exige verificación aprobada, alcance y avisos.");
 
         devices.MapPost("/verify", async (IDeviceControlService service, CancellationToken ct) => Results.Ok(await service.VerifyAsync(ct)))
-            .RequirePermission(Permission.ManageSettings).Produces<VerificationDto>().WithSummary("Verifica los 5 puntos de MobiControl.");
+            .RequirePermission(Permission.ManageSettings).Produces<VerificationDto>()
+            .WithSummary("Verifica el vínculo con ONE, la conexión con MobiControl y las órdenes de jornada.");
 
         devices.MapGet("/devices", async (bool? unassigned, IDeviceControlService service, CancellationToken ct) =>
                 Results.Ok(await service.ListDevicesAsync(unassigned ?? false, ct)))
@@ -215,5 +217,23 @@ public static class Phase2Endpoints
                 (await service.AssignAsync(id, command, ct)).ToHttpResult())
             .WithTags("Usuarios y roles").RequireAuthorization().RequirePermission(Permission.ManageUsers)
             .WithSummary("Asigna un dispositivo de MobiControl a la persona.");
+
+        // Credencial que ONE emite para la empresa en WorkLog: con ella se leen sus variables (MobiControl).
+        var one = app.MapGroup("/api/v1/integrations/one").WithTags("Integraciones")
+            .RequireAuthorization().RequirePermission(Permission.ManageSettings);
+
+        one.MapGet("/", async (IOneLinkService service, CancellationToken ct) => Results.Ok(await service.GetAsync(false, ct)))
+            .Produces<OneLinkDto>().WithSummary("Vínculo de la empresa con INTECHSYS ONE y lo que ONE responde con él. Nunca incluye el secreto.");
+
+        one.MapPost("/check", async (IOneLinkService service, CancellationToken ct) => Results.Ok(await service.GetAsync(true, ct)))
+            .Produces<OneLinkDto>().WithSummary("Vuelve a preguntarle a ONE, sin usar la caché.");
+
+        one.MapPut("/", async (SaveOneLinkCommand command, IOneLinkService service, CancellationToken ct) =>
+                (await service.SaveAsync(command, ct)).ToHttpResult())
+            .Produces<OneLinkDto>()
+            .WithSummary("Guarda la credencial solo si ONE la acepta y es de esta empresa y de WorkLog. El secreto se guarda cifrado.");
+
+        one.MapDelete("/", async (IOneLinkService service, CancellationToken ct) => (await service.RemoveAsync(ct)).ToHttpResult())
+            .WithSummary("Quita la credencial de ONE: WorkLog deja de leer la consola de MobiControl.");
     }
 }

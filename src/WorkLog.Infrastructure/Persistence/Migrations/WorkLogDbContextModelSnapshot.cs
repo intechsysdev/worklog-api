@@ -692,6 +692,17 @@ namespace WorkLog.Infrastructure.Persistence.Migrations
                         .HasMaxLength(160)
                         .HasColumnType("nvarchar(160)");
 
+                    b.Property<string>("OneApiKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("OneApiSecretProtected")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTimeOffset?>("OneLinkedAt")
+                        .HasColumnType("datetimeoffset");
+
                     b.Property<string>("Slug")
                         .HasMaxLength(80)
                         .HasColumnType("nvarchar(80)");

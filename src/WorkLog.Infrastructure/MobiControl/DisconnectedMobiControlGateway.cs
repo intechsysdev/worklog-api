@@ -4,15 +4,15 @@ using WorkLog.Domain.Devices;
 namespace WorkLog.Infrastructure.MobiControl;
 
 /// <summary>
-/// MobiControl sin conectar: lo que ve una empresa mientras no exista el adaptador REST real. No
-/// inventa equipos ni aprueba la verificación, para que nadie active el control de dispositivos
-/// creyendo que la consola responde.
+/// MobiControl apagado (MobiControl:Mode distinto de Rest y de Simulator). No inventa equipos ni
+/// aprueba la verificación, para que nadie active el control de dispositivos creyendo que la
+/// consola responde.
 /// </summary>
 internal sealed class DisconnectedMobiControlGateway : IDeviceManagementGateway
 {
     private const string NotConnected = "WorkLog todavía no está conectado con la consola de MobiControl de esta empresa.";
 
-    public bool IsConnected => false;
+    public bool CanControlWorkday => false;
 
     public Task<IReadOnlyList<ManagedDevice>> ListDevicesAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<ManagedDevice>>([]);

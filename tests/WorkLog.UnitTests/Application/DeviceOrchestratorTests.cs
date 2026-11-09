@@ -45,7 +45,7 @@ public sealed class DeviceOrchestratorTests
     [Fact]
     public async Task Sin_consola_conectada_la_jornada_no_espera_a_MobiControl_aunque_lo_guardado_diga_encendido()
     {
-        _gateway.IsConnected.Returns(false);
+        _gateway.CanControlWorkday.Returns(false);
         var orchestrator = Orchestrator();
         var member = Technician();
 
@@ -60,7 +60,7 @@ public sealed class DeviceOrchestratorTests
     [Fact]
     public async Task Con_consola_conectada_y_politica_Block_no_deja_iniciar_si_MobiControl_no_responde()
     {
-        _gateway.IsConnected.Returns(true);
+        _gateway.CanControlWorkday.Returns(true);
         _gateway.SetWorkdayStateAsync("mc-r01", true, Arg.Any<CancellationToken>())
             .Returns(new GatewayResult(DeviceCommandStatus.Failed, "Sin respuesta."));
         var orchestrator = Orchestrator();
@@ -74,7 +74,8 @@ public sealed class DeviceOrchestratorTests
     [Theory]
     [InlineData(null, "DisconnectedMobiControlGateway")]
     [InlineData("Disabled", "DisconnectedMobiControlGateway")]
-    [InlineData("Rest", "DisconnectedMobiControlGateway")]
+    [InlineData("Rest", "MobiControlRestGateway")]
+    [InlineData("Otro", "DisconnectedMobiControlGateway")]
     [InlineData("simulator", "SimulatedMobiControlGateway")]
     public void El_simulador_solo_se_usa_si_se_pide_explicitamente(string? mode, string expected)
     {

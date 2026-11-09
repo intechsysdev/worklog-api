@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -63,32 +64,39 @@ public static class DependencyInjection
         services.AddScoped<ICompanyDirectory, CompanyDirectory>();
         services.AddSingleton<ISpreadsheetWriter, Files.ClosedXmlSpreadsheetWriter>();
 
+        services.AddMemoryCache();
+
         var mobiControl = configuration.GetSection(MobiControl.MobiControlOptions.SectionName);
         services.Configure<MobiControl.MobiControlOptions>(mobiControl);
-        // El simulador inventa una flota y aprueba la verificación: solo para desarrollo, nunca por defecto.
-        if (string.Equals(mobiControl["Mode"], MobiControl.MobiControlOptions.SimulatorMode, StringComparison.OrdinalIgnoreCase))
+        var mode = mobiControl["Mode"];
+        if (string.Equals(mode, MobiControl.MobiControlOptions.SimulatorMode, StringComparison.OrdinalIgnoreCase))
+        {
+            // El simulador inventa una flota y aprueba la verificación: solo para desarrollo, nunca por defecto.
             services.AddScoped<IDeviceManagementGateway, MobiControl.SimulatedMobiControlGateway>();
+        }
+        else if (string.Equals(mode, MobiControl.MobiControlOptions.RestMode, StringComparison.OrdinalIgnoreCase))
+        {
+            // El plazo de cada llamada lo pone la variable MOBICONTROL_TIMEOUT_SEGUNDOS de la empresa.
+            services.AddHttpClient(MobiControl.MobiControlRestGateway.HttpClientName, http => http.Timeout = TimeSpan.FromSeconds(90));
+            services.AddScoped<IDeviceManagementGateway, MobiControl.MobiControlRestGateway>();
+        }
         else
+        {
             services.AddScoped<IDeviceManagementGateway, MobiControl.DisconnectedMobiControlGateway>();
+        }
 
         services.AddOptions<OneOptions>()
             .Bind(configuration.GetSection(OneOptions.SectionName))
             .ValidateDataAnnotations()
             .ValidateOnStart();
 
-        services.AddHttpClient<IIdentityProvider, OneIdentityProvider>((sp, http) =>
-            {
-                var one = sp.GetRequiredService<IOptions<OneOptions>>().Value;
-                http.BaseAddress = new Uri(one.BaseUrl.TrimEnd('/') + "/");
-                http.Timeout = TimeSpan.FromSeconds(one.TimeoutSeconds + 5);
-            })
-            .AddStandardResilienceHandler(resilience =>
-            {
-                resilience.AttemptTimeout.Timeout = TimeSpan.FromSeconds(5);
-                resilience.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(12);
-                resilience.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(30);
-                resilience.Retry.MaxRetryAttempts = 2;
-            });
+        services.AddHttpClient<IIdentityProvider, OneIdentityProvider>(ConfigureOne).AddStandardResilienceHandler(OneResilience);
+
+        // Credencial de ONE de cada empresa: el secreto se cifra y con ella se leen sus variables.
+        services.AddDataProtection().SetApplicationName("worklog-api");
+        services.AddSingleton<ISecretProtector, Security.DataProtectionSecretProtector>();
+        services.AddHttpClient<IOneIntegrationClient, OneIntegrationClient>(ConfigureOne).AddStandardResilienceHandler(OneResilience);
+        services.AddScoped<ITenantConfiguration, OneTenantConfiguration>();
 
         services.Configure<StorageOptions>(configuration.GetSection(StorageOptions.SectionName));
         if (string.Equals(configuration["Storage:Provider"], "AzureBlob", StringComparison.OrdinalIgnoreCase))
@@ -97,5 +105,20 @@ public static class DependencyInjection
             services.AddSingleton<IFileStorage, LocalFileStorage>();
 
         return services;
+    }
+
+    private static void ConfigureOne(IServiceProvider sp, HttpClient http)
+    {
+        var one = sp.GetRequiredService<IOptions<OneOptions>>().Value;
+        http.BaseAddress = new Uri(one.BaseUrl.TrimEnd('/') + "/");
+        http.Timeout = TimeSpan.FromSeconds(one.TimeoutSeconds + 5);
+    }
+
+    private static void OneResilience(Microsoft.Extensions.Http.Resilience.HttpStandardResilienceOptions resilience)
+    {
+        resilience.AttemptTimeout.Timeout = TimeSpan.FromSeconds(5);
+        resilience.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(12);
+        resilience.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(30);
+        resilience.Retry.MaxRetryAttempts = 2;
     }
 }

@@ -44,7 +44,7 @@ Las pruebas de arquitectura verifican estas reglas:
 | Hora | La hora del evento es la del teléfono, acotada a no más de 2 min en el futuro y no más de 7 días en el pasado. Un inicio encolado antes de la ventana del turno se corrige al inicio de la ventana (`Adjusted`). |
 | Auditoría | Solo se agregan registros, en la misma transacción que el cambio. Un trigger SQL impide `UPDATE`/`DELETE`. |
 | Parámetros | La cadena es Global → País → Empresa → Sede, con fecha de vigencia. Los legales solo se editan por país y exigen una norma que los soporte. |
-| MobiControl | Fase 2: un puerto con un simulador solo para desarrollo; fuera de él, WorkLog queda sin MobiControl hasta el adaptador real, que sale de Geomonitoreo. |
+| MobiControl | Un puerto con adaptador REST (lectura) que usa las variables de la empresa en ONE, y un simulador solo para desarrollo. El cliente sigue al de Geomonitoreo. |
 
 ## Correr en local
 
@@ -140,19 +140,25 @@ Reglas de la Fase 2:
 - **Cierre automático.** `WorkdayAutomationJob` corre cada 5 min (`Automation:IntervalMinutes`) y recorre cada empresa con su contexto.
   - Cierra al fin del turno más la gracia, o al fin de las horas extra aprobadas si es más tarde.
   - La jornada queda `PendingReview`.
+- **Vínculo con ONE.** Cada empresa guarda la credencial que ONE emite para ella en WorkLog (`/api/v1/integrations/one`,
+  permiso `manage_settings`). Con ella se leen sus variables en `/api/v1/integration/config` de ONE, en caché 5 min.
+  - Antes de guardar se prueba contra ONE: se rechaza si ONE no la acepta o si es de otra empresa o de otra app.
+  - El secreto se guarda cifrado con Data Protection (en App Service las claves quedan en `%HOME%\ASP.NET\DataProtection-Keys`).
 - **MobiControl.** Puerto `IDeviceManagementGateway`. `MobiControl:Mode` elige el adaptador:
+  - `Rest`, el valor de `appsettings.json` y de producción: la consola de cada empresa con sus variables `MOBICONTROL_*`
+    de ONE. Hoy solo lee: equipos (`api/devices/search`, en caché 1 min) y la verificación del vínculo y la conexión.
   - `Simulator`, solo en `appsettings.Development.json`: flota estable por empresa y `MobiControl:FailingChecks` para probar fallos.
-  - `Disabled`, el valor de `appsettings.json` y de producción: sin equipos ni apps, la verificación no pasa, no se puede
-    activar el control y la jornada no espera a MobiControl, aunque la base guarde una verificación hecha con el simulador.
-  - Al abrir o cerrar la jornada se envía `WL_JORNADA` y, si aplica, se cierra la sesión de Shared Device.
-  - Con política `Block`, si MobiControl no responde no se deja iniciar.
-  - El adaptador REST real se toma de geomonitoreo-api.
+  - Cualquier otro valor: sin MobiControl.
+  - `CanControlWorkday` dice si el adaptador da órdenes de jornada. Mientras sea false (hoy `Rest`), la verificación no
+    pasa, no se puede activar el control y la jornada no espera a MobiControl, aunque la base diga lo contrario.
+  - Con órdenes, al abrir o cerrar la jornada se envía `WL_JORNADA` y, si aplica, se cierra la sesión de Shared Device;
+    con política `Block`, si MobiControl no responde no se deja iniciar.
 - **Archivos.** `Storage:Provider = Local | AzureBlob`. Para Azure se configuran `Storage:ConnectionString` como secreto y `Storage:Container`.
 
 ## Próximas fases
 
 - Invitación completa contra ONE: crear o ligar al usuario en ONE desde WorkLog.
-- Adaptador REST real de MobiControl.
+- Órdenes de jornada en MobiControl: verificar perfiles y `WL_JORNADA`, enviarlo, cerrar Shared Device y el catálogo de apps.
 - Push (FCM) y avisos del servidor (no inicio de jornada al usuario y al supervisor).
 - Catálogo de países y ciudades (GeoNames) y carga de festivos por país.
 - Paquete legal por país con validación del asesor laboral.

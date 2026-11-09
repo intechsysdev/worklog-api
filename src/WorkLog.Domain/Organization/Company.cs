@@ -23,6 +23,19 @@ public sealed class Company : AuditableEntity
     /// <summary>Ya se crearon los roles, categorías y resultados con que nace la empresa.</summary>
     public bool IsProvisioned { get; private set; }
 
+    /// <summary>
+    /// API key que ONE emitió para esta empresa en WorkLog. Con ella se leen las variables de la
+    /// empresa (la consola de MobiControl, entre otras) desde la API de integración de ONE.
+    /// </summary>
+    public string? OneApiKey { get; private set; }
+
+    /// <summary>Secreto de esa credencial, cifrado por el servidor. Nunca sale de la API.</summary>
+    public string? OneApiSecretProtected { get; private set; }
+
+    public DateTimeOffset? OneLinkedAt { get; private set; }
+
+    public bool HasOneCredential => OneApiKey is not null && OneApiSecretProtected is not null;
+
     public static Company Register(Guid oneTenantId, string name, string? slug) => new()
     {
         Id = oneTenantId,
@@ -48,4 +61,26 @@ public sealed class Company : AuditableEntity
     }
 
     public void MarkProvisioned() => IsProvisioned = true;
+
+    /// <summary>Guarda la credencial de ONE. El secreto llega ya cifrado: el dominio no lo ve en claro.</summary>
+    public Result LinkOne(string apiKey, string protectedSecret, DateTimeOffset at)
+    {
+        var key = Text.Clean(apiKey);
+        if (key.Length is 0 or > 200)
+            return DomainError.Validation("company.one_key", "Pega la API key que ONE emitió para WorkLog.", "apiKey");
+        if (string.IsNullOrWhiteSpace(protectedSecret))
+            return DomainError.Validation("company.one_secret", "Pega el secreto de la credencial.", "apiSecret");
+
+        OneApiKey = key;
+        OneApiSecretProtected = protectedSecret;
+        OneLinkedAt = at;
+        return Result.Success();
+    }
+
+    public void UnlinkOne()
+    {
+        OneApiKey = null;
+        OneApiSecretProtected = null;
+        OneLinkedAt = null;
+    }
 }

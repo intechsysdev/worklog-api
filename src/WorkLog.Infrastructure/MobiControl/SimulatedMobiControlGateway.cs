@@ -12,10 +12,12 @@ public sealed class MobiControlOptions
     public const string SectionName = "MobiControl";
 
     public const string SimulatorMode = "Simulator";
+    public const string RestMode = "Rest";
 
     /// <summary>
-    /// "Simulator" solo para desarrollo (appsettings.Development.json). Cualquier otro valor deja
-    /// a WorkLog sin MobiControl hasta que exista el adaptador REST real.
+    /// "Rest": la consola real de cada empresa, con sus variables de ONE (appsettings.json).
+    /// "Simulator": solo para desarrollo (appsettings.Development.json). Cualquier otro valor,
+    /// o ninguno, deja a WorkLog sin MobiControl.
     /// </summary>
     public string Mode { get; set; } = "Disabled";
 
@@ -42,7 +44,7 @@ internal sealed class SimulatedMobiControlGateway(ITenantContext tenant, TimePro
         "com.empresa.chat", "com.android.camera", "com.google.android.apps.maps", "com.android.chrome"
     ];
 
-    public bool IsConnected => true;
+    public bool CanControlWorkday => true;
 
     public Task<IReadOnlyList<ManagedDevice>> ListDevicesAsync(CancellationToken ct = default)
     {
