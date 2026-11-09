@@ -44,7 +44,7 @@ Las pruebas de arquitectura verifican estas reglas:
 | Hora | La hora del evento es la del teléfono, acotada a no más de 2 min en el futuro y no más de 7 días en el pasado. Un inicio encolado antes de la ventana del turno se corrige al inicio de la ventana (`Adjusted`). |
 | Auditoría | Solo se agregan registros, en la misma transacción que el cambio. Un trigger SQL impide `UPDATE`/`DELETE`. |
 | Parámetros | La cadena es Global → País → Empresa → Sede, con fecha de vigencia. Los legales solo se editan por país y exigen una norma que los soporte. |
-| MobiControl | Fase 2: un puerto con adaptador simulado; el adaptador real sale de Geomonitoreo. |
+| MobiControl | Fase 2: un puerto con un simulador solo para desarrollo; fuera de él, WorkLog queda sin MobiControl hasta el adaptador real, que sale de Geomonitoreo. |
 
 ## Correr en local
 
@@ -140,7 +140,10 @@ Reglas de la Fase 2:
 - **Cierre automático.** `WorkdayAutomationJob` corre cada 5 min (`Automation:IntervalMinutes`) y recorre cada empresa con su contexto.
   - Cierra al fin del turno más la gracia, o al fin de las horas extra aprobadas si es más tarde.
   - La jornada queda `PendingReview`.
-- **MobiControl.** Puerto `IDeviceManagementGateway` con un simulador (flota estable por empresa, `MobiControl:FailingChecks` para probar fallos).
+- **MobiControl.** Puerto `IDeviceManagementGateway`. `MobiControl:Mode` elige el adaptador:
+  - `Simulator`, solo en `appsettings.Development.json`: flota estable por empresa y `MobiControl:FailingChecks` para probar fallos.
+  - `Disabled`, el valor de `appsettings.json` y de producción: sin equipos ni apps, la verificación no pasa, no se puede
+    activar el control y la jornada no espera a MobiControl, aunque la base guarde una verificación hecha con el simulador.
   - Al abrir o cerrar la jornada se envía `WL_JORNADA` y, si aplica, se cierra la sesión de Shared Device.
   - Con política `Block`, si MobiControl no responde no se deja iniciar.
   - El adaptador REST real se toma de geomonitoreo-api.

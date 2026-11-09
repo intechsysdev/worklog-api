@@ -650,7 +650,7 @@ internal sealed class MyWorkdayService(
         var dayLetters = plan.TemplateId is { } templateId ? (await templates.FindAsync(templateId, ct))?.Days.ToLetters() : null;
 
         var deviceSettings = await devices.SettingsAsync(ct);
-        var controlled = context.Member.DeviceId is not null && deviceSettings.AppliesTo(context.Member.BranchId, context.Member.WorkGroupId);
+        var controlled = await devices.ControlsAsync(context.Member, ct);
         var shared = controlled && (await devices.DevicesAsync(ct)).GetValueOrDefault(context.Member.DeviceId!) is { IsShared: true };
 
         var overtimeUntil = (await requests.ListAsync([context.Member.Id], today, today, Domain.Requests.RequestStatus.Approved, ct))

@@ -11,8 +11,13 @@ public sealed class MobiControlOptions
 {
     public const string SectionName = "MobiControl";
 
-    /// <summary>"Simulator" (por defecto) o "Rest" (adaptador real, pendiente).</summary>
-    public string Mode { get; set; } = "Simulator";
+    public const string SimulatorMode = "Simulator";
+
+    /// <summary>
+    /// "Simulator" solo para desarrollo (appsettings.Development.json). Cualquier otro valor deja
+    /// a WorkLog sin MobiControl hasta que exista el adaptador REST real.
+    /// </summary>
+    public string Mode { get; set; } = "Disabled";
 
     /// <summary>Códigos de verificación que el simulador reporta como fallidos, para probar la pantalla.</summary>
     public string[] FailingChecks { get; set; } = [];
@@ -36,6 +41,8 @@ internal sealed class SimulatedMobiControlGateway(ITenantContext tenant, TimePro
         "com.intechsys.worklog", "com.android.dialer", "com.empresa.mail", "com.empresa.ot", "com.empresa.inventario",
         "com.empresa.chat", "com.android.camera", "com.google.android.apps.maps", "com.android.chrome"
     ];
+
+    public bool IsConnected => true;
 
     public Task<IReadOnlyList<ManagedDevice>> ListDevicesAsync(CancellationToken ct = default)
     {

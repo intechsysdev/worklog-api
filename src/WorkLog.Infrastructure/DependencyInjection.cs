@@ -63,8 +63,13 @@ public static class DependencyInjection
         services.AddScoped<ICompanyDirectory, CompanyDirectory>();
         services.AddSingleton<ISpreadsheetWriter, Files.ClosedXmlSpreadsheetWriter>();
 
-        services.Configure<MobiControl.MobiControlOptions>(configuration.GetSection(MobiControl.MobiControlOptions.SectionName));
-        services.AddScoped<IDeviceManagementGateway, MobiControl.SimulatedMobiControlGateway>();
+        var mobiControl = configuration.GetSection(MobiControl.MobiControlOptions.SectionName);
+        services.Configure<MobiControl.MobiControlOptions>(mobiControl);
+        // El simulador inventa una flota y aprueba la verificación: solo para desarrollo, nunca por defecto.
+        if (string.Equals(mobiControl["Mode"], MobiControl.MobiControlOptions.SimulatorMode, StringComparison.OrdinalIgnoreCase))
+            services.AddScoped<IDeviceManagementGateway, MobiControl.SimulatedMobiControlGateway>();
+        else
+            services.AddScoped<IDeviceManagementGateway, MobiControl.DisconnectedMobiControlGateway>();
 
         services.AddOptions<OneOptions>()
             .Bind(configuration.GetSection(OneOptions.SectionName))

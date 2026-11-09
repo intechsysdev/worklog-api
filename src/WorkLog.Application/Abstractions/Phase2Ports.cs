@@ -123,6 +123,12 @@ public sealed record GatewayResult(DeviceCommandStatus Status, string? Error)
 /// </summary>
 public interface IDeviceManagementGateway
 {
+    /// <summary>
+    /// False mientras la empresa no tenga una consola conectada: no hay equipos, la verificación
+    /// no pasa y la jornada no espera a MobiControl.
+    /// </summary>
+    bool IsConnected { get; }
+
     Task<IReadOnlyList<ManagedDevice>> ListDevicesAsync(CancellationToken ct = default);
 
     Task<IReadOnlyList<VerificationCheck>> VerifyAsync(CancellationToken ct = default);

@@ -71,6 +71,12 @@ public interface IDeviceOrchestrator
 
     Task OnWorkdayClosedAsync(Member member, CancellationToken ct = default);
 
+    /// <summary>
+    /// Si las apps de la persona dependen de la jornada: consola conectada, equipo asignado y su sede
+    /// o grupo dentro del alcance. Sin consola no hay control, diga lo que diga lo guardado.
+    /// </summary>
+    Task<bool> ControlsAsync(Member member, CancellationToken ct = default);
+
     /// <summary>Estado de los equipos indexado por id (batería, en línea), para Equipo hoy.</summary>
     Task<IReadOnlyDictionary<string, ManagedDevice>> DevicesAsync(CancellationToken ct = default);
 
@@ -90,11 +96,17 @@ internal sealed class DeviceOrchestrator(
     public async Task<DeviceControlSettings> SettingsAsync(CancellationToken ct = default) =>
         _settings ??= await settingsRepository.GetAsync(ct) ?? DeviceControlSettings.Default(tenant.TenantId ?? Guid.Empty);
 
+    public async Task<bool> ControlsAsync(Member member, CancellationToken ct = default) =>
+        gateway.IsConnected && member.DeviceId is not null
+                            && (await SettingsAsync(ct)).AppliesTo(member.BranchId, member.WorkGroupId);
+
     public async Task<bool> OnWorkdayOpeningAsync(Member member, CancellationToken ct = default)
     {
-        var settings = await SettingsAsync(ct);
-        if (member.DeviceId is not { } device || !settings.AppliesTo(member.BranchId, member.WorkGroupId)) return true;
+        // Sin control (por ejemplo, sin consola conectada) la jornada no espera a MobiControl.
+        if (!await ControlsAsync(member, ct)) return true;
 
+        var settings = await SettingsAsync(ct);
+        var device = member.DeviceId!;
         var result = await gateway.SetWorkdayStateAsync(device, open: true, ct);
         commands.Add(DeviceCommand.Record(member.TenantId, device, member.Id, DeviceCommandType.OpenWorkday, result.Status, clock.GetUtcNow(), result.Error));
 
@@ -107,9 +119,10 @@ internal sealed class DeviceOrchestrator(
 
     public async Task OnWorkdayClosedAsync(Member member, CancellationToken ct = default)
     {
-        var settings = await SettingsAsync(ct);
-        if (member.DeviceId is not { } device || !settings.AppliesTo(member.BranchId, member.WorkGroupId)) return;
+        if (!await ControlsAsync(member, ct)) return;
 
+        var settings = await SettingsAsync(ct);
+        var device = member.DeviceId!;
         var now = clock.GetUtcNow();
         var closed = await gateway.SetWorkdayStateAsync(device, open: false, ct);
         commands.Add(DeviceCommand.Record(member.TenantId, device, member.Id, DeviceCommandType.CloseWorkday, closed.Status, now, closed.Error));
@@ -144,6 +157,11 @@ internal sealed class DeviceControlService(
 
     public async Task<OperationResult<DeviceControlSettingsDto>> SaveSettingsAsync(SaveDeviceControlCommand command, CancellationToken ct = default)
     {
+        // Una verificación guardada cuando WorkLog usaba el simulador no habilita activar sin consola real.
+        if (command.Enabled && !gateway.IsConnected)
+            return OperationResult<DeviceControlSettingsDto>.Invalid(
+                "WorkLog todavía no está conectado con MobiControl en esta empresa.", null, "device.not_connected");
+
         var settings = await EnsureSettingsAsync(ct);
         var wasEnabled = settings.Enabled;
         var updated = settings.Update(new DeviceControlData(command.Enabled, command.BranchIds ?? [], command.GroupIds ?? [],
@@ -235,7 +253,9 @@ internal sealed class DeviceControlService(
         return settings;
     }
 
-    private static DeviceControlSettingsDto ToDto(DeviceControlSettings s) => new(
-        s.Enabled, s.BranchIds, s.GroupIds, s.WarningMinutes, s.LogoutSharedOnClose, s.OfflinePolicy, s.CorporateApps,
-        s.AlwaysAvailableApps, DeviceControlSettings.FixedApps, s.LastVerifiedAt, s.LastVerificationPassed);
+    /// <summary>Sin consola conectada no se muestra encendido ni verificado, aunque lo diga lo guardado.</summary>
+    private DeviceControlSettingsDto ToDto(DeviceControlSettings s) => new(
+        gateway.IsConnected && s.Enabled, s.BranchIds, s.GroupIds, s.WarningMinutes, s.LogoutSharedOnClose, s.OfflinePolicy,
+        s.CorporateApps, s.AlwaysAvailableApps, DeviceControlSettings.FixedApps, s.LastVerifiedAt,
+        gateway.IsConnected && s.LastVerificationPassed);
 }
