@@ -114,6 +114,9 @@ namespace WorkLog.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<int>("FailedLogins")
+                        .HasColumnType("int");
+
                     b.Property<string>("FullName")
                         .IsRequired()
                         .HasMaxLength(150)
@@ -122,8 +125,21 @@ namespace WorkLog.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("LastSeenAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<DateTimeOffset?>("LockedUntil")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<bool>("MustChangePassword")
+                        .HasColumnType("bit");
+
                     b.Property<Guid?>("OneUserId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("PasswordHash")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTimeOffset?>("PasswordSetAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<DateTimeOffset?>("PolicyAcceptedAt")
                         .HasColumnType("datetimeoffset");
@@ -160,6 +176,8 @@ namespace WorkLog.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("BranchId");
 
+                    b.HasIndex("Email");
+
                     b.HasIndex("RoleId");
 
                     b.HasIndex("SupervisorId");
@@ -176,6 +194,86 @@ namespace WorkLog.Infrastructure.Persistence.Migrations
                         .HasFilter("[OneUserId] IS NOT NULL");
 
                     b.ToTable("Members", (string)null);
+                });
+
+            modelBuilder.Entity("WorkLog.Domain.Access.MobileSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("AccessExpiresAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("AccessTokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nchar(64)")
+                        .IsFixedLength();
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Device")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<Guid>("MemberId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("PreviousRefreshTokenHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nchar(64)")
+                        .IsFixedLength();
+
+                    b.Property<DateTimeOffset>("RefreshExpiresAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("RefreshTokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nchar(64)")
+                        .IsFixedLength();
+
+                    b.Property<DateTimeOffset?>("RenewedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("RevokedReason")
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AccessTokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("MemberId");
+
+                    b.HasIndex("PreviousRefreshTokenHash");
+
+                    b.HasIndex("RefreshTokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "MemberId");
+
+                    b.ToTable("MobileSessions", (string)null);
                 });
 
             modelBuilder.Entity("WorkLog.Domain.Access.Role", b =>
@@ -1717,6 +1815,15 @@ namespace WorkLog.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("WorkGroupId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("WorkLog.Domain.Access.MobileSession", b =>
+                {
+                    b.HasOne("WorkLog.Domain.Access.Member", null)
+                        .WithMany()
+                        .HasForeignKey("MemberId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("WorkLog.Domain.Activities.ActivityType", b =>

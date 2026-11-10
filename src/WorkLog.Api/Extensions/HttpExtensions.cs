@@ -81,6 +81,10 @@ public static class PermissionExtensions
     /// <summary>Endpoint autenticado que no requiere empresa resuelta.</summary>
     public static TBuilder WithoutTenant<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder =>
         builder.WithMetadata(new SkipTenantResolution());
+
+    /// <summary>Endpoint que la app puede usar mientras la contraseña es temporal.</summary>
+    public static TBuilder AllowPendingPasswordChange<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder =>
+        builder.WithMetadata(new AllowPendingPasswordChange());
 }
 
 /// <summary>Traduce una excepción no controlada a ProblemDetails sin filtrar detalles internos.</summary>

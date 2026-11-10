@@ -10,6 +10,9 @@ namespace WorkLog.Application.Access;
 public interface IAccessService
 {
     Task<OperationResult<ActorInfo>> ResolveAsync(OneIdentity identity, OneTenantAccess tenant, CancellationToken ct = default);
+
+    /// <summary>Persona de una sesión de la app (contraseña de WorkLog): la empresa la da la sesión.</summary>
+    Task<OperationResult<ActorInfo>> ResolveAppAsync(Guid tenantId, Guid memberId, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -29,6 +32,29 @@ internal sealed class AccessService(
 {
     /// <summary>Último ingreso: se actualiza como mucho cada 5 minutos para no escribir en cada petición.</summary>
     private static readonly TimeSpan TouchInterval = TimeSpan.FromMinutes(5);
+
+    public async Task<OperationResult<ActorInfo>> ResolveAppAsync(Guid tenantId, Guid memberId, CancellationToken ct = default)
+    {
+        var company = await companies.FindAsync(tenantId, ct);
+        var member = await members.FindAsync(memberId, ct);
+        if (company is null || member is null || member.Usage != MemberUsage.Mobile || !member.HasAppPassword)
+            return OperationResult<ActorInfo>.Forbidden("Tu usuario ya no tiene acceso a la app. Habla con tu administrador.", "access.app_revoked");
+        if (member.Status == MemberStatus.Inactive)
+            return OperationResult<ActorInfo>.Forbidden("Tu usuario de WorkLog está desactivado. Habla con tu administrador.", "access.inactive");
+
+        var role = await roles.FindAsync(member.RoleId, ct)
+                   ?? throw new InvalidOperationException($"El rol {member.RoleId} no existe.");
+
+        var now = clock.GetUtcNow();
+        if (member.LastSeenAt is null || now - member.LastSeenAt > TouchInterval)
+        {
+            member.Touch(now);
+            await unitOfWork.SaveChangesAsync(ct);
+        }
+
+        return new ActorInfo(tenantId, company.Name, member.Id, member.OneUserId ?? Guid.Empty, member.FullName, member.Email,
+            role.Name, role.SystemKey, role.EffectivePermissions, member.Usage, false);
+    }
 
     public async Task<OperationResult<ActorInfo>> ResolveAsync(OneIdentity identity, OneTenantAccess tenant, CancellationToken ct = default)
     {

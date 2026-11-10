@@ -76,6 +76,11 @@ builder.Services.AddRateLimiter(options =>
                 AutoReplenishment = true
             }));
 
+    // Ingreso a la app: pocos intentos por IP, además del bloqueo por persona tras 5 fallos.
+    options.AddPolicy(WorkLog.Api.Endpoints.MobileAuthEndpoints.AuthRateLimit, http =>
+        RateLimitPartition.GetFixedWindowLimiter(http.Connection.RemoteIpAddress?.ToString() ?? "anon",
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+
     options.OnRejected = async (context, ct) =>
     {
         context.HttpContext.Response.Headers.RetryAfter = "60";
@@ -158,6 +163,7 @@ app.MapScalarApiReference(options => options
 app.MapHealthChecks("/health").AllowAnonymous();
 
 app.MapMeEndpoints();
+app.MapMobileAuthEndpoints();
 app.MapPanelEndpoints();
 app.MapPhase2Endpoints();
 

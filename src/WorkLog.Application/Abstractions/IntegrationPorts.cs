@@ -16,10 +16,14 @@ public sealed record OneAppConfiguration(
     IReadOnlyDictionary<string, string?> Settings,
     string ConfigVersion);
 
-/// <summary>La configuración, o por qué no se pudo obtener, en palabras para quien administra.</summary>
-public sealed record OneConfigurationResult(OneAppConfiguration? Configuration, string? Problem)
+/// <summary>
+/// La configuración, o por qué no se pudo obtener, en palabras para quien administra.
+/// <paramref name="LicenseInactive"/>: ONE rechazó la credencial (revocada, o WorkLog desactivada o
+/// vencida en la empresa); es la señal para no dejar entrar a la app.
+/// </summary>
+public sealed record OneConfigurationResult(OneAppConfiguration? Configuration, string? Problem, bool LicenseInactive = false)
 {
-    public static OneConfigurationResult Fail(string problem) => new(null, problem);
+    public static OneConfigurationResult Fail(string problem, bool licenseInactive = false) => new(null, problem, licenseInactive);
 }
 
 /// <summary>Cliente de la API de integración de ONE (/api/v1/integration/config).</summary>
@@ -36,6 +40,9 @@ public interface IOneIntegrationClient
 public interface ITenantConfiguration
 {
     Task<OneConfigurationResult> GetAsync(CancellationToken ct = default);
+
+    /// <summary>La de una empresa dada, sin depender de la petición (el ingreso a la app aún no la tiene).</summary>
+    Task<OneConfigurationResult> ForTenantAsync(Guid tenantId, CancellationToken ct = default);
 
     /// <summary>Descarta lo cacheado de una empresa: se usa al cambiar o quitar su credencial.</summary>
     void Forget(Guid tenantId);

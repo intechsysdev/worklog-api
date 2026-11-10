@@ -36,6 +36,9 @@ public static class DependencyInjection
         services.AddScoped<IWorkSiteRepository, WorkSiteRepository>();
         services.AddScoped<IRoleRepository, RoleRepository>();
         services.AddScoped<IMemberRepository, MemberRepository>();
+        services.AddScoped<IMobileSessionRepository, MobileSessionRepository>();
+        services.AddScoped<IMobileLoginDirectory, MobileLoginDirectory>();
+        services.AddSingleton<IPasswordHasher, Security.IdentityPasswordHasher>();
         services.AddScoped<IScheduleTemplateRepository, ScheduleTemplateRepository>();
         services.AddScoped<IScheduleAssignmentRepository, ScheduleAssignmentRepository>();
         services.AddScoped<IShiftOverrideRepository, ShiftOverrideRepository>();

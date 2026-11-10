@@ -25,7 +25,10 @@ public sealed record MemberDto(
     string? PolicyVersion,
     DateTimeOffset? PolicyAcceptedAt,
     DateTimeOffset? LastSeenAt,
-    bool IsLinkedToOne)
+    bool IsLinkedToOne,
+    bool HasAppPassword,
+    bool MustChangePassword,
+    DateTimeOffset? AppLockedUntil)
 {
     /// <summary>Solo al invitar: se creó la cuenta en ONE ahora.</summary>
     public bool? OneAccountCreated { get; init; }
@@ -35,7 +38,13 @@ public sealed record MemberDto(
 
     /// <summary>Solo al invitar: aviso cuando ONE no permitió el alta y quedó solo la invitación de WorkLog.</summary>
     public string? OneNotice { get; init; }
+
+    /// <summary>Solo al invitar a un usuario de la app: su contraseña temporal de WorkLog (una sola vez).</summary>
+    public string? AppTemporaryPassword { get; init; }
 }
+
+/// <summary>Contraseña temporal de la app recién generada. Se muestra una sola vez.</summary>
+public sealed record AppPasswordDto(string TemporaryPassword);
 
 public sealed record SaveMemberCommand(
     string? FullName,
@@ -44,7 +53,8 @@ public sealed record SaveMemberCommand(
     Guid RoleId,
     Guid? BranchId,
     Guid? WorkGroupId,
-    Guid? SupervisorId);
+    Guid? SupervisorId,
+    bool? UsesPanel = null);
 
 public sealed record RoleDto(
     Guid Id,
@@ -99,6 +109,12 @@ public interface IMemberService
 
     Task<OperationResult> UnlinkDeviceAsync(Guid id, CancellationToken ct = default);
 
+    /// <summary>Nueva contraseña temporal de la app: cierra las sesiones abiertas y obliga a cambiarla.</summary>
+    Task<OperationResult<AppPasswordDto>> ResetAppPasswordAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>Crea (o vincula) la cuenta de ONE de un usuario de la app que también necesita el panel.</summary>
+    Task<OperationResult<MemberDto>> LinkOneAccountAsync(Guid id, CancellationToken ct = default);
+
     Task<OperationResult<IReadOnlyList<RoleDto>>> ListRolesAsync(CancellationToken ct = default);
 
     IReadOnlyList<PermissionDto> ListPermissions();
@@ -118,7 +134,10 @@ internal sealed class MemberService(
     IIdentityProvider identities,
     ICallerCredentials caller,
     IAuditTrail audit,
-    IUnitOfWork unitOfWork) : IMemberService
+    IUnitOfWork unitOfWork,
+    IPasswordHasher hasher,
+    IMobileSessionRepository sessions,
+    TimeProvider clock) : IMemberService
 {
     public async Task<OperationResult<MyProfileDto>> GetMyProfileAsync(CancellationToken ct = default)
     {
@@ -179,30 +198,30 @@ internal sealed class MemberService(
         var created = Member.Invite(actor.TenantId, ToProfile(command));
         if (created.IsFailure) return OperationResult<MemberDto>.From(created.Error!);
 
-        // La identidad vive en ONE: se crea (o se vincula) allá con el token de quien invita. Si ONE no
-        // lo permite (quien invita no administra la empresa en ONE), queda la invitación de WorkLog y
-        // la persona entra en cuanto un administrador de ONE la agregue a la empresa.
         var member = created.Value;
-        OneProvisionResult? provisioned = null;
-        if (caller.AccessToken is { } token)
+
+        // Quien usa la app entra con su contraseña de WorkLog: se le da una temporal que cambia al entrar.
+        string? appPassword = null;
+        if (member.Usage == MemberUsage.Mobile)
         {
-            var (first, last) = SplitName(member.FullName);
-            provisioned = await identities.ProvisionMemberAsync(token, actor.TenantId, member.Email, first, last, ct);
-            if (provisioned is { Succeeded: true, UserId: { } oneUserId })
-            {
-                if (await members.FindByOneUserAsync(oneUserId, ct) is { } taken)
-                    return OperationResult<MemberDto>.Invalid($"Esa cuenta de ONE ya está en WorkLog como {taken.FullName}.", "email", "member.one_taken");
-                member.BindOneUser(oneUserId);
-            }
-            else if (provisioned is { Succeeded: false, Forbidden: false })
-            {
-                return OperationResult<MemberDto>.Conflict($"ONE no pudo dar de alta a la persona: {provisioned.Error}", "one.provision_failed");
-            }
+            appPassword = MobileTokens.TemporaryPassword();
+            member.SetTemporaryPassword(hasher.Hash(appPassword), clock.GetUtcNow());
+        }
+
+        // El panel entra con ONE: la cuenta se crea (o se vincula) allá con el token de quien invita, para
+        // quien es solo de panel y para el usuario de la app que también lo usa. Si ONE no lo permite
+        // (quien invita no administra la empresa en ONE), queda la invitación de WorkLog.
+        OneProvisionResult? provisioned = null;
+        if (member.Usage == MemberUsage.WebOnly || command.UsesPanel == true)
+        {
+            var linked = await ProvisionInOneAsync(member, ct);
+            if (!linked.Succeeded) return OperationResult<MemberDto>.From(linked);
+            provisioned = linked.Value;
         }
 
         members.Add(member);
         audit.Record("member.invited",
-            $"Invitó a {member.FullName} ({member.Email}){(provisioned?.UserCreated == true ? " y creó su cuenta en ONE" : "")}.",
+            $"Invitó a {member.FullName} ({member.Email}){(provisioned?.UserCreated == true ? " y creó su cuenta en ONE" : "")}{(appPassword is null ? "" : " con contraseña temporal de la app")}.",
             "Usuarios", member.Id.ToString(), after: new { member.Email, member.Usage, command.RoleId });
         await unitOfWork.SaveChangesAsync(ct);
 
@@ -213,10 +232,75 @@ internal sealed class MemberService(
                 OneAccountCreated = provisioned?.Succeeded == true ? provisioned.UserCreated : null,
                 TemporaryPassword = provisioned?.TemporaryPassword,
                 OneNotice = provisioned is { Forbidden: true }
-                    ? "Tu usuario no administra la empresa en ONE: la persona podrá entrar cuando un administrador de ONE la agregue a la empresa."
-                    : null
+                    ? "Tu usuario no administra la empresa en ONE: la persona podrá entrar al panel cuando un administrador de ONE la agregue a la empresa."
+                    : null,
+                AppTemporaryPassword = appPassword
             }
             : dto;
+    }
+
+    /// <summary>Crea o vincula la cuenta de ONE con el token de quien hace la acción. Null si no hay token.</summary>
+    private async Task<OperationResult<OneProvisionResult?>> ProvisionInOneAsync(Member member, CancellationToken ct)
+    {
+        if (caller.AccessToken is not { } token) return OperationResult<OneProvisionResult?>.Ok(null);
+
+        var (first, last) = SplitName(member.FullName);
+        var provisioned = await identities.ProvisionMemberAsync(token, actor.TenantId, member.Email, first, last, ct);
+        if (provisioned is { Succeeded: true, UserId: { } oneUserId })
+        {
+            if (await members.FindByOneUserAsync(oneUserId, ct) is { } taken && taken.Id != member.Id)
+                return OperationResult<OneProvisionResult?>.Invalid($"Esa cuenta de ONE ya está en WorkLog como {taken.FullName}.", "email", "member.one_taken");
+            member.BindOneUser(oneUserId);
+        }
+        else if (provisioned is { Succeeded: false, Forbidden: false })
+        {
+            return OperationResult<OneProvisionResult?>.Conflict($"ONE no pudo dar de alta a la persona: {provisioned.Error}", "one.provision_failed");
+        }
+
+        return provisioned;
+    }
+
+    public async Task<OperationResult<AppPasswordDto>> ResetAppPasswordAsync(Guid id, CancellationToken ct = default)
+    {
+        var member = await members.FindAsync(id, ct);
+        if (member is null) return OperationResult<AppPasswordDto>.NotFound("La persona no existe.");
+
+        var password = MobileTokens.TemporaryPassword();
+        var set = member.SetTemporaryPassword(hasher.Hash(password), clock.GetUtcNow());
+        if (set.IsFailure) return OperationResult<AppPasswordDto>.From(set.Error!);
+
+        await CloseSessionsAsync(member, "contraseña restablecida", ct);
+        audit.Record("member.app_password_reset", $"Restableció la contraseña de la app de {member.FullName}.", "Usuarios", member.Id.ToString());
+        await unitOfWork.SaveChangesAsync(ct);
+        return new AppPasswordDto(password);
+    }
+
+    public async Task<OperationResult<MemberDto>> LinkOneAccountAsync(Guid id, CancellationToken ct = default)
+    {
+        var member = await members.FindAsync(id, ct);
+        if (member is null) return OperationResult<MemberDto>.NotFound("La persona no existe.");
+        if (member.OneUserId is not null) return await GetAsync(member.Id, ct);
+
+        var linked = await ProvisionInOneAsync(member, ct);
+        if (!linked.Succeeded) return OperationResult<MemberDto>.From(linked);
+        if (linked.Value is not { Succeeded: true } provisioned)
+            return OperationResult<MemberDto>.Forbidden(
+                "Tu usuario no administra la empresa en ONE: pide a un administrador de ONE que agregue a la persona.", "one.provision_forbidden");
+
+        audit.Record("member.one_linked", $"Creó la cuenta de ONE de {member.FullName} para el panel.", "Usuarios", member.Id.ToString());
+        await unitOfWork.SaveChangesAsync(ct);
+
+        var dto = await GetAsync(member.Id, ct);
+        return dto.Succeeded
+            ? dto.Value! with { OneAccountCreated = provisioned.UserCreated, TemporaryPassword = provisioned.TemporaryPassword }
+            : dto;
+    }
+
+    /// <summary>Cierra las sesiones de la app de la persona: el teléfono vuelve a pedir el ingreso.</summary>
+    private async Task CloseSessionsAsync(Member member, string reason, CancellationToken ct)
+    {
+        var now = clock.GetUtcNow();
+        foreach (var session in await sessions.ListOpenAsync(member.Id, ct)) session.Revoke(now, reason);
     }
 
     public async Task<OperationResult<MemberDto>> UpdateAsync(Guid id, SaveMemberCommand command, CancellationToken ct = default)
@@ -233,6 +317,8 @@ internal sealed class MemberService(
         var before = new { member.RoleId, member.BranchId, member.WorkGroupId, member.SupervisorId, member.Usage };
         var updated = member.UpdateProfile(ToProfile(command));
         if (updated.IsFailure) return OperationResult<MemberDto>.From(updated.Error!);
+        if (before.Usage == MemberUsage.Mobile && member.Usage == MemberUsage.WebOnly)
+            await CloseSessionsAsync(member, "ya no usa la app", ct);
 
         audit.Record("member.updated", $"Actualizó los datos de {member.FullName}.", "Usuarios", member.Id.ToString(),
             before, new { member.RoleId, member.BranchId, member.WorkGroupId, member.SupervisorId, member.Usage });
@@ -250,7 +336,11 @@ internal sealed class MemberService(
             return OperationResult<MemberDto>.Invalid("No puedes desactivar tu propio usuario.", code: "member.self_deactivate");
 
         if (active) member.Reactivate();
-        else member.Deactivate();
+        else
+        {
+            member.Deactivate();
+            await CloseSessionsAsync(member, "usuario desactivado", ct);
+        }
 
         audit.Record(active ? "member.activated" : "member.deactivated",
             $"{(active ? "Activó" : "Desactivó")} a {member.FullName}.", "Usuarios", member.Id.ToString());
@@ -266,6 +356,7 @@ internal sealed class MemberService(
 
         var device = member.DeviceId;
         member.UnlinkDevice();
+        await CloseSessionsAsync(member, "dispositivo desvinculado", ct);
         audit.Record("member.device_unlinked", $"Desvinculó el dispositivo {device} de {member.FullName}.", "Dispositivos", member.Id.ToString(),
             new { DeviceId = device }, null);
         await unitOfWork.SaveChangesAsync(ct);
@@ -408,7 +499,10 @@ internal sealed class MemberService(
         m.PolicyVersion,
         m.PolicyAcceptedAt,
         m.LastSeenAt,
-        m.OneUserId is not null);
+        m.OneUserId is not null,
+        m.HasAppPassword,
+        m.MustChangePassword,
+        m.LockedUntil);
 
     private static RoleDto ToDto(Role r, int people) =>
         new(r.Id, r.Name, r.Kind, r.SystemKey, PermissionKeys(r.EffectivePermissions), people);

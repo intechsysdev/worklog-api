@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using WorkLog.Application.Abstractions;
+using WorkLog.Application.Access;
 
 namespace WorkLog.Api.Auth;
 
@@ -17,6 +18,11 @@ public static class OneClaims
 
     /// <summary>Clave en HttpContext.Items con el token, para consultar a ONE las empresas del usuario.</summary>
     public const string TokenItem = "one:token";
+
+    /// <summary>Clave en HttpContext.Items con la sesión de la app (usuarios con contraseña de WorkLog).</summary>
+    public const string AppSessionItem = "wl:app";
+
+    public const string AppSessionClaim = "wl:app_session";
 
     public static string TokenHash(string token) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
 }
@@ -31,6 +37,7 @@ public sealed class OneAuthenticationHandler(
     ILoggerFactory logger,
     UrlEncoder encoder,
     IIdentityProvider identities,
+    IMobileAuthService appAuth,
     IMemoryCache cache) : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
     private static readonly TimeSpan CacheFor = TimeSpan.FromSeconds(15);
@@ -42,6 +49,9 @@ public sealed class OneAuthenticationHandler(
 
         var token = header[7..].Trim();
         if (token.Length == 0) return AuthenticateResult.NoResult();
+
+        // Los usuarios de la app no tienen cuenta de ONE: su token lo emite y lo valida WorkLog.
+        if (MobileTokens.IsAppToken(token)) return await AuthenticateAppAsync(token);
 
         var key = "one:me:" + OneClaims.TokenHash(token);
         if (!cache.TryGetValue<OneIdentity>(key, out var identity) || identity is null)
@@ -65,6 +75,29 @@ public sealed class OneAuthenticationHandler(
         return AuthenticateResult.Success(new AuthenticationTicket(principal, OneClaims.Scheme));
     }
 
+    private async Task<AuthenticateResult> AuthenticateAppAsync(string token)
+    {
+        var key = "wl:app:" + OneClaims.TokenHash(token);
+        if (!cache.TryGetValue<AppSession>(key, out var session) || session is null)
+        {
+            session = await appAuth.AuthenticateAsync(token, Context.RequestAborted);
+            if (session is null) return AuthenticateResult.Fail("La sesión de la app no es válida.");
+            cache.Set(key, session, CacheFor);
+        }
+
+        Context.Items[OneClaims.AppSessionItem] = session;
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, session.MemberId.ToString()),
+            new(ClaimTypes.Email, session.Email),
+            new(ClaimTypes.Name, session.FullName),
+            new(OneClaims.AppSessionClaim, session.SessionId.ToString())
+        };
+
+        var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, OneClaims.Scheme));
+        return AuthenticateResult.Success(new AuthenticationTicket(principal, OneClaims.Scheme));
+    }
+
     protected override Task HandleChallengeAsync(AuthenticationProperties properties)
     {
         Response.StatusCode = StatusCodes.Status401Unauthorized;
@@ -73,7 +106,7 @@ public sealed class OneAuthenticationHandler(
     }
 
     public static OneIdentity? ReadIdentity(ClaimsPrincipal user) =>
-        Guid.TryParse(user.FindFirstValue(ClaimTypes.NameIdentifier), out var id)
+        !user.HasClaim(c => c.Type == OneClaims.AppSessionClaim) && Guid.TryParse(user.FindFirstValue(ClaimTypes.NameIdentifier), out var id)
             ? new OneIdentity(id, user.FindFirstValue(ClaimTypes.Email) ?? string.Empty,
                 user.FindFirstValue(ClaimTypes.Name) ?? string.Empty, user.HasClaim(OneClaims.PlatformAdmin, "true"))
             : null;

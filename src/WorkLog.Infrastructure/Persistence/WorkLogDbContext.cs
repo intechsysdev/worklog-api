@@ -30,6 +30,7 @@ public sealed class WorkLogDbContext(DbContextOptions<WorkLogDbContext> options,
     public DbSet<WorkSite> WorkSites => Set<WorkSite>();
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<Member> Members => Set<Member>();
+    public DbSet<MobileSession> MobileSessions => Set<MobileSession>();
     public DbSet<ScheduleTemplate> ScheduleTemplates => Set<ScheduleTemplate>();
     public DbSet<ScheduleAssignment> ScheduleAssignments => Set<ScheduleAssignment>();
     public DbSet<ShiftOverride> ShiftOverrides => Set<ShiftOverride>();

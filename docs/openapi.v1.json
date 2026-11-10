@@ -188,6 +188,29 @@
         }
       }
     },
+    "/api/v1/me/password": {
+      "post": {
+        "tags": [
+          "Mi cuenta"
+        ],
+        "summary": "Cambia la contraseña de la app (usuarios con contraseña de WorkLog). Cierra las demás sesiones.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/v1/me": {
       "get": {
         "tags": [
@@ -636,6 +659,89 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/mobile-auth/login": {
+      "post": {
+        "tags": [
+          "Ingreso a la app"
+        ],
+        "summary": "Correo y contraseña de WorkLog. Si sirven en varias empresas responde la lista: se elige y se repite con tenantId.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MobileLoginCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileLoginResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mobile-auth/refresh": {
+      "post": {
+        "tags": [
+          "Ingreso a la app"
+        ],
+        "summary": "Renueva la sesión: entrega tokens nuevos y el refresh anterior deja de servir.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshSessionCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileSessionDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mobile-auth/logout": {
+      "post": {
+        "tags": [
+          "Ingreso a la app"
+        ],
+        "summary": "Cierra la sesión del teléfono.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshSessionCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
           }
         }
       }
@@ -2285,6 +2391,68 @@
           },
           "required": true
         },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/members/{id}/app-password": {
+      "post": {
+        "tags": [
+          "Usuarios y roles"
+        ],
+        "summary": "Genera una contraseña temporal de la app (se muestra una vez), cierra sus sesiones y obliga a cambiarla.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppPasswordDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/members/{id}/one-account": {
+      "post": {
+        "tags": [
+          "Usuarios y roles"
+        ],
+        "summary": "Crea o vincula la cuenta de ONE de un usuario de la app que también usa el panel.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "OK",
@@ -4569,6 +4737,18 @@
           null
         ]
       },
+      "AppPasswordDto": {
+        "required": [
+          "temporaryPassword"
+        ],
+        "type": "object",
+        "properties": {
+          "temporaryPassword": {
+            "type": "string"
+          }
+        },
+        "description": "Contraseña temporal de la app recién generada. Se muestra una sola vez."
+      },
       "AssignDeviceCommand": {
         "required": [
           "deviceId"
@@ -5107,6 +5287,27 @@
               "string"
             ],
             "format": "int32"
+          }
+        }
+      },
+      "ChangePasswordCommand": {
+        "required": [
+          "currentPassword",
+          "newPassword"
+        ],
+        "type": "object",
+        "properties": {
+          "currentPassword": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "newPassword": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -6320,7 +6521,10 @@
           "policyVersion",
           "policyAcceptedAt",
           "lastSeenAt",
-          "isLinkedToOne"
+          "isLinkedToOne",
+          "hasAppPassword",
+          "mustChangePassword",
+          "appLockedUntil"
         ],
         "type": "object",
         "properties": {
@@ -6424,6 +6628,19 @@
           "isLinkedToOne": {
             "type": "boolean"
           },
+          "hasAppPassword": {
+            "type": "boolean"
+          },
+          "mustChangePassword": {
+            "type": "boolean"
+          },
+          "appLockedUntil": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
           "oneAccountCreated": {
             "type": [
               "null",
@@ -6444,6 +6661,13 @@
               "string"
             ],
             "description": "Solo al invitar: aviso cuando ONE no permitió el alta y quedó solo la invitación de WorkLog."
+          },
+          "appTemporaryPassword": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Solo al invitar a un usuario de la app: su contraseña temporal de WorkLog (una sola vez)."
           }
         }
       },
@@ -6488,6 +6712,145 @@
           "WebOnly"
         ],
         "description": "Cómo usa WorkLog la persona: con la app en un dispositivo o solo desde el panel web."
+      },
+      "MobileLoginCommand": {
+        "required": [
+          "email",
+          "password",
+          "tenantId",
+          "device"
+        ],
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "password": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "tenantId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "device": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "MobileLoginResult": {
+        "required": [
+          "session",
+          "tenants"
+        ],
+        "type": "object",
+        "properties": {
+          "session": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MobileSessionDto"
+              }
+            ]
+          },
+          "tenants": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/MobileTenantOption"
+            }
+          }
+        },
+        "description": "Sesión, o la lista de empresas si el correo y la contraseña sirven en varias (se elige y se repite)."
+      },
+      "MobileSessionDto": {
+        "required": [
+          "accessToken",
+          "refreshToken",
+          "expiresAt",
+          "mustChangePassword",
+          "user",
+          "tenantId",
+          "tenantName"
+        ],
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          },
+          "refreshToken": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "mustChangePassword": {
+            "type": "boolean"
+          },
+          "user": {
+            "$ref": "#/components/schemas/MobileUserDto"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantName": {
+            "type": "string"
+          }
+        },
+        "description": "Tokens de la app. ExpiresAt es el vencimiento del de acceso (una hora)."
+      },
+      "MobileTenantOption": {
+        "required": [
+          "tenantId",
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "MobileUserDto": {
+        "required": [
+          "memberId",
+          "fullName",
+          "email"
+        ],
+        "type": "object",
+        "properties": {
+          "memberId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fullName": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          }
+        }
       },
       "MyProfileDto": {
         "required": [
@@ -7556,6 +7919,20 @@
           }
         }
       },
+      "RefreshSessionCommand": {
+        "required": [
+          "refreshToken"
+        ],
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "RegisterAbsenceCommand": {
         "required": [
           "memberId",
@@ -8119,6 +8496,12 @@
               "string"
             ],
             "format": "uuid"
+          },
+          "usesPanel": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },
@@ -10314,6 +10697,9 @@
     },
     {
       "name": "Mi jornada"
+    },
+    {
+      "name": "Ingreso a la app"
     },
     {
       "name": "Registro de actividades"

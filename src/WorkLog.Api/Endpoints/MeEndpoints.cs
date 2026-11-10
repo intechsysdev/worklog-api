@@ -23,8 +23,15 @@ public static class MeEndpoints
 
         var me = app.MapGroup("/api/v1/me").WithTags("Mi cuenta").RequireAuthorization();
 
-        me.MapGet("/tenants", async (HttpContext http, IIdentityProvider identities, IMemoryCache cache, CancellationToken ct) =>
+        me.MapGet("/tenants", async (HttpContext http, IIdentityProvider identities, ICompanyRepository companies, CancellationToken ct) =>
             {
+                // La sesión de la app es de una sola empresa: la que dice la sesión.
+                if (http.Items[OneClaims.AppSessionItem] is AppSession app)
+                {
+                    var company = await companies.FindAsync(app.TenantId, ct);
+                    return Results.Ok(new List<OneTenantAccess> { new(app.TenantId, company?.Name ?? "Empresa", company?.Slug, "Member") });
+                }
+
                 if (http.Items[OneClaims.TokenItem] is not string token) return Results.Unauthorized();
                 var tenants = await identities.GetTenantsAsync(token, ct);
                 return tenants is null
@@ -32,7 +39,16 @@ public static class MeEndpoints
                     : Results.Ok(tenants);
             })
             .WithoutTenant()
+            .AllowPendingPasswordChange()
             .Produces<IReadOnlyList<OneTenantAccess>>().WithSummary("Empresas con WorkLog asignado a las que llega el usuario.");
+
+        me.MapPost("/password", async (HttpContext http, ChangePasswordCommand command, IMobileAuthService auth, CancellationToken ct) =>
+                http.Items[OneClaims.AppSessionItem] is AppSession app
+                    ? (await auth.ChangePasswordAsync(app, command, ct)).ToHttpResult()
+                    : Results.Problem("La contraseña del panel se cambia en INTECHSYS ONE.", title: "No aplica",
+                        statusCode: StatusCodes.Status400BadRequest, extensions: new Dictionary<string, object?> { ["code"] = "password.one" }))
+            .AllowPendingPasswordChange()
+            .WithSummary("Cambia la contraseña de la app (usuarios con contraseña de WorkLog). Cierra las demás sesiones.");
 
         me.MapGet("/", async (IMemberService members, CancellationToken ct) => (await members.GetMyProfileAsync(ct)).ToHttpResult())
             .Produces<MyProfileDto>().WithSummary("Perfil de WorkLog: rol, permisos, sede, supervisor y dispositivo.");

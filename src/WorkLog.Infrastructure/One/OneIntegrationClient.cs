@@ -26,7 +26,7 @@ internal sealed class OneIntegrationClient(HttpClient http, IOptions<OneOptions>
             if (response.StatusCode is HttpStatusCode.Unauthorized)
                 return OneConfigurationResult.Fail("ONE no reconoce la credencial: revisa la API key y el secreto, o si fue rotada o revocada.");
             if (response.StatusCode is HttpStatusCode.Forbidden)
-                return OneConfigurationResult.Fail("ONE rechazó la credencial: puede estar revocada, o WorkLog estar desactivada o vencida en la empresa.");
+                return OneConfigurationResult.Fail("ONE rechazó la credencial: puede estar revocada, o WorkLog estar desactivada o vencida en la empresa.", licenseInactive: true);
             if (!response.IsSuccessStatusCode)
             {
                 logger.LogWarning("ONE respondió {Status} a /integration/config.", (int)response.StatusCode);

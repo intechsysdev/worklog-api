@@ -26,6 +26,12 @@ public sealed class TenantResolutionMiddleware(RequestDelegate next, IMemoryCach
         var endpoint = http.GetEndpoint();
         var needsTenant = endpoint?.Metadata.GetMetadata<SkipTenantResolution>() is null;
 
+        if (http.User.Identity?.IsAuthenticated == true && http.Items[OneClaims.AppSessionItem] is AppSession app)
+        {
+            await ResolveAppAsync(http, context, access, app, needsTenant, endpoint);
+            return;
+        }
+
         if (http.User.Identity?.IsAuthenticated != true || !needsTenant ||
             http.Items[OneClaims.TokenItem] is not string token ||
             OneAuthenticationHandler.ReadIdentity(http.User) is not { } identity)
@@ -98,6 +104,53 @@ public sealed class TenantResolutionMiddleware(RequestDelegate next, IMemoryCach
         await next(http);
     }
 
+    /// <summary>
+    /// Sesión de la app: la empresa es la de la sesión (no se le pregunta a ONE). Con contraseña
+    /// temporal solo se permite cambiarla; lo demás responde 403 hasta que la cambie.
+    /// </summary>
+    private async Task ResolveAppAsync(HttpContext http, RequestContext context, IAccessService access, AppSession app, bool needsTenant,
+        Endpoint? endpoint)
+    {
+        var requested = http.Request.Headers[TenantHeader].ToString();
+        if (Guid.TryParse(requested, out var tenantId) && tenantId != app.TenantId)
+        {
+            await Problem(http, StatusCodes.Status403Forbidden, "Acceso denegado", "Tu sesión es de otra empresa.", "access.tenant");
+            return;
+        }
+
+        if (app.MustChangePassword && endpoint?.Metadata.GetMetadata<AllowPendingPasswordChange>() is null)
+        {
+            await Problem(http, StatusCodes.Status403Forbidden, "Cambia tu contraseña",
+                "Tu contraseña es temporal. Cámbiala para seguir usando la app.", "auth.password_change_required");
+            return;
+        }
+
+        if (!needsTenant)
+        {
+            await next(http);
+            return;
+        }
+
+        context.SetTenant(app.TenantId);
+        var actorKey = $"wl:actor:app:{app.SessionId:N}";
+        if (!cache.TryGetValue<ActorInfo>(actorKey, out var actor) || actor is null)
+        {
+            var resolved = await access.ResolveAppAsync(app.TenantId, app.MemberId, http.RequestAborted);
+            if (!resolved.Succeeded)
+            {
+                logger.LogInformation("Acceso negado a la app a {Email} en {Tenant}: {Reason}", app.Email, app.TenantId, resolved.Message);
+                await Problem(http, StatusCodes.Status403Forbidden, "Acceso denegado", resolved.Message ?? "Acceso denegado.", resolved.Code);
+                return;
+            }
+
+            actor = resolved.Value!;
+            cache.Set(actorKey, actor, ActorCacheFor);
+        }
+
+        context.SetActor(actor);
+        await next(http);
+    }
+
     private static Task Problem(HttpContext http, int status, string title, string detail, string? code) =>
         Results.Problem(detail: detail, title: title, statusCode: status,
                 extensions: code is null ? null : new Dictionary<string, object?> { ["code"] = code })
@@ -106,3 +159,6 @@ public sealed class TenantResolutionMiddleware(RequestDelegate next, IMemoryCach
 
 /// <summary>Marca endpoints autenticados que no necesitan empresa (p. ej. la lista de empresas).</summary>
 public sealed class SkipTenantResolution;
+
+/// <summary>Endpoints que la app puede usar con contraseña temporal (cambiarla y cerrar sesión).</summary>
+public sealed class AllowPendingPasswordChange;

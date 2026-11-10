@@ -4,7 +4,7 @@ API de **WorkLog · Bitácora de actividades**, app de la plataforma INTECHSYS O
 
 Stack: .NET 10, minimal APIs, EF Core 10 sobre SQL Server y arquitectura hexagonal.
 
-Los usuarios, la sesión y las empresas son de **ONE**. WorkLog guarda solo lo propio de cada persona dentro de la bitácora: rol, sede, grupo, supervisor y dispositivo.
+Las empresas y el panel web son de **ONE**: quien entra al panel lo hace con su cuenta de ONE. Los usuarios de la app (técnicos) **solo existen en WorkLog**: entran con su correo y una contraseña de WorkLog. Quien usa la app y además el panel (p. ej. un supervisor de campo) tiene las dos cuentas.
 
 ## Arquitectura
 
@@ -35,7 +35,8 @@ Las pruebas de arquitectura verifican estas reglas:
 
 | Tema | Decisión |
 |---|---|
-| Identidad | Cada token se valida preguntando a ONE (`/auth/me`), con caché de 15 s por hash del token. WorkLog nunca tiene la llave de firma de ONE. |
+| Identidad | Panel: cada token se valida preguntando a ONE (`/auth/me`), con caché de 15 s por hash del token; WorkLog nunca tiene la llave de firma de ONE. App: tokens opacos de WorkLog (`wlm_…`) que se guardan solo como SHA-256 en `MobileSessions`. |
+| Ingreso a la app | `/api/v1/mobile-auth` (login, refresh, logout), con 10 intentos por minuto por IP y bloqueo de 15 min tras 5 fallos por persona. Acceso de 1 h, refresh de 30 días que rota en cada uso; reusar un refresh viejo cierra la sesión. La contraseña temporal (la da el panel) solo permite cambiarla (`POST /me/password`). Si ONE responde que WorkLog no está activo en la empresa, no se deja entrar. |
 | Empresa | La cabecera `X-Tenant-Id` se valida contra `/me/apps/worklog/tenants`. Un filtro global de EF aísla los datos por empresa. |
 | Primer ingreso | Owner/Admin de la empresa en ONE entra como Administrador y se crean los roles, categorías y resultados de la empresa. Los demás necesitan invitación: se ligan por correo al primer ingreso. |
 | Permisos | Son 12 permisos por rol (matriz del diseño) y se verifican con `.RequirePermission(...)` en cada endpoint. |
@@ -157,7 +158,7 @@ Reglas de la Fase 2:
 
 ## Próximas fases
 
-- Invitación completa contra ONE: crear o ligar al usuario en ONE desde WorkLog.
+- Recuperación de contraseña de la app sin administrador (requiere envío de correos).
 - Órdenes de jornada en MobiControl: verificar perfiles y `WL_JORNADA`, enviarlo, cerrar Shared Device y el catálogo de apps.
 - Push (FCM) y avisos del servidor (no inicio de jornada al usuario y al supervisor).
 - Catálogo de países y ciudades (GeoNames) y carga de festivos por país.

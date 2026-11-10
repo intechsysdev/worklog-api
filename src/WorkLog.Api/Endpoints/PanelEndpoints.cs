@@ -229,6 +229,14 @@ public static class PanelEndpoints
         members.MapPost("/{id:guid}/active", async (Guid id, ActiveRequest request, IMemberService service, CancellationToken ct) =>
                 (await service.SetActiveAsync(id, request.Active, ct)).ToHttpResult())
             .RequirePermission(Permission.ManageUsers).Produces<MemberDto>().WithSummary("Activa o desactiva a una persona.");
+        members.MapPost("/{id:guid}/app-password", async (Guid id, IMemberService service, CancellationToken ct) =>
+                (await service.ResetAppPasswordAsync(id, ct)).ToHttpResult())
+            .RequirePermission(Permission.ManageUsers).Produces<AppPasswordDto>()
+            .WithSummary("Genera una contraseña temporal de la app (se muestra una vez), cierra sus sesiones y obliga a cambiarla.");
+        members.MapPost("/{id:guid}/one-account", async (Guid id, IMemberService service, CancellationToken ct) =>
+                (await service.LinkOneAccountAsync(id, ct)).ToHttpResult())
+            .RequirePermission(Permission.ManageUsers).Produces<MemberDto>()
+            .WithSummary("Crea o vincula la cuenta de ONE de un usuario de la app que también usa el panel.");
         members.MapDelete("/{id:guid}/device", async (Guid id, IMemberService service, CancellationToken ct) =>
                 (await service.UnlinkDeviceAsync(id, ct)).ToHttpResult())
             .RequirePermission(Permission.ManageUsers).WithSummary("Desvincula el dispositivo. Lo que estaba en cola sin sincronizar se pierde.");

@@ -18,8 +18,9 @@ public enum MemberStatus
 }
 
 /// <summary>
-/// Persona dentro de WorkLog. La identidad (correo, contraseña, 2FA) es de INTECHSYS ONE; aquí
-/// se guarda solo lo propio de la bitácora: rol, sede, grupo, supervisor y dispositivo.
+/// Persona dentro de WorkLog: rol, sede, grupo, supervisor y dispositivo. Quien usa la app tiene
+/// su contraseña aquí (los usuarios móviles no tienen cuenta de ONE); el panel web entra con
+/// INTECHSYS ONE, así que quien también lo usa tiene además su cuenta allá.
 /// </summary>
 public sealed class Member : TenantEntity
 {
@@ -47,6 +48,23 @@ public sealed class Member : TenantEntity
     public string? PolicyVersion { get; private set; }
     public DateTimeOffset? PolicyAcceptedAt { get; private set; }
     public DateTimeOffset? LastSeenAt { get; private set; }
+
+    /// <summary>Contraseña de la app (hash). Null: la persona aún no puede entrar a la app.</summary>
+    public string? PasswordHash { get; private set; }
+
+    /// <summary>La contraseña es temporal (la entregó un administrador): la app pide cambiarla al entrar.</summary>
+    public bool MustChangePassword { get; private set; }
+
+    public DateTimeOffset? PasswordSetAt { get; private set; }
+    public int FailedLogins { get; private set; }
+    public DateTimeOffset? LockedUntil { get; private set; }
+
+    /// <summary>Intentos fallidos seguidos que bloquean la cuenta de la app.</summary>
+    public const int MaxFailedLogins = 5;
+
+    public static readonly TimeSpan LockoutDuration = TimeSpan.FromMinutes(15);
+
+    public bool HasAppPassword => PasswordHash is not null;
 
     public string Initials => Text.Initials(FullName);
     public bool IsActive => Status == MemberStatus.Active;
@@ -102,7 +120,50 @@ public sealed class Member : TenantEntity
 
     public void Deactivate() => Status = MemberStatus.Inactive;
 
-    public void Reactivate() => Status = OneUserId is null ? MemberStatus.Invited : MemberStatus.Active;
+    /// <summary>Vuelve como estaba: activa si ya entró alguna vez (a la app o con ONE), invitada si no.</summary>
+    public void Reactivate() => Status = OneUserId is null && LastSeenAt is null ? MemberStatus.Invited : MemberStatus.Active;
+
+    /// <summary>Contraseña que entrega un administrador: sirve para entrar una vez y la app obliga a cambiarla.</summary>
+    public Result SetTemporaryPassword(string passwordHash, DateTimeOffset at)
+    {
+        if (Usage != MemberUsage.Mobile)
+            return DomainError.Validation("member.password_web", "Solo los usuarios de la app tienen contraseña de WorkLog; el panel entra con ONE.");
+
+        PasswordHash = passwordHash;
+        MustChangePassword = true;
+        PasswordSetAt = at;
+        FailedLogins = 0;
+        LockedUntil = null;
+        return Result.Success();
+    }
+
+    public void ChangePassword(string passwordHash, DateTimeOffset at)
+    {
+        PasswordHash = passwordHash;
+        MustChangePassword = false;
+        PasswordSetAt = at;
+    }
+
+    public bool IsLockedOut(DateTimeOffset now) => LockedUntil is { } until && until > now;
+
+    /// <summary>Tras <see cref="MaxFailedLogins"/> intentos fallidos seguidos, la cuenta se bloquea un rato.</summary>
+    public void RegisterFailedLogin(DateTimeOffset now)
+    {
+        FailedLogins++;
+        if (FailedLogins < MaxFailedLogins) return;
+
+        LockedUntil = now + LockoutDuration;
+        FailedLogins = 0;
+    }
+
+    /// <summary>Ingreso correcto a la app. El primero activa la invitación.</summary>
+    public void RegisterLogin(DateTimeOffset now)
+    {
+        FailedLogins = 0;
+        LockedUntil = null;
+        LastSeenAt = now;
+        if (Status == MemberStatus.Invited) Status = MemberStatus.Active;
+    }
 
     public Result AcceptPolicy(string version, DateTimeOffset at)
     {
@@ -160,7 +221,14 @@ public sealed class Member : TenantEntity
         WorkGroupId = profile.WorkGroupId;
         SupervisorId = profile.SupervisorId == Id ? null : profile.SupervisorId;
 
-        if (Usage == MemberUsage.WebOnly) UnlinkDevice();
+        if (Usage == MemberUsage.WebOnly)
+        {
+            // Sin app no hay dispositivo ni contraseña de WorkLog: el panel entra con ONE.
+            UnlinkDevice();
+            PasswordHash = null;
+            MustChangePassword = false;
+        }
+
         return Result.Success();
     }
 

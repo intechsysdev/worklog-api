@@ -28,11 +28,13 @@ internal sealed class OneTenantConfiguration(
 
     public void Forget(Guid tenantId) => cache.Remove(Key(tenantId));
 
-    public async Task<OneConfigurationResult> GetAsync(CancellationToken ct = default)
-    {
-        if (tenant.TenantId is not { } tenantId)
-            return OneConfigurationResult.Fail("No hay empresa en la petición.");
+    public Task<OneConfigurationResult> GetAsync(CancellationToken ct = default) =>
+        tenant.TenantId is { } tenantId
+            ? ForTenantAsync(tenantId, ct)
+            : Task.FromResult(OneConfigurationResult.Fail("No hay empresa en la petición."));
 
+    public async Task<OneConfigurationResult> ForTenantAsync(Guid tenantId, CancellationToken ct = default)
+    {
         if (cache.TryGetValue<OneConfigurationResult>(Key(tenantId), out var cached) && cached is not null)
             return cached;
 
