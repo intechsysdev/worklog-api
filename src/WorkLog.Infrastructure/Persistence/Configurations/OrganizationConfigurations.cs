@@ -57,6 +57,10 @@ internal sealed class WorkSiteConfiguration : IEntityTypeConfiguration<WorkSite>
         builder.Property(x => x.Address).HasMaxLength(250);
         builder.Property(x => x.PolygonVertices).HasMaxLength(2000);
         builder.Ignore(x => x.Geofence);
+        builder.Property(x => x.MobiControlName).HasMaxLength(100);
+        builder.Property(x => x.MobiControlReferenceId).HasMaxLength(64);
+        builder.Property(x => x.MobiControlError).HasMaxLength(300);
+        builder.Ignore(x => x.ExpectedMobiControlName);
         builder.HasIndex(x => new { x.TenantId, x.NameKey }).IsUnique();
     }
 }

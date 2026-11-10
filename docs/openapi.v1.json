@@ -1332,7 +1332,7 @@
         "tags": [
           "Sitios"
         ],
-        "summary": "Activa o desactiva un sitio.",
+        "summary": "Activa o desactiva un sitio. Desactivar lo borra de MobiControl; activar lo vuelve a crear.",
         "parameters": [
           {
             "name": "id",
@@ -1361,6 +1361,63 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/WorkSiteDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sites/mobicontrol-sync": {
+      "post": {
+        "tags": [
+          "Sitios"
+        ],
+        "summary": "Lleva a MobiControl todos los sitios (prefijo «WorkLog · »): crea, renombra o borra lo que falte.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WorkSiteDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sites/{id}/mobicontrol-sync": {
+      "post": {
+        "tags": [
+          "Sitios"
+        ],
+        "summary": "Reintenta llevar un sitio a MobiControl.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WorkSiteDto"
+                  }
                 }
               }
             }
@@ -10606,7 +10663,10 @@
           "radiusMeters",
           "vertices",
           "isActive",
-          "workOrdersThisWeek"
+          "workOrdersThisWeek",
+          "mobiControlName",
+          "mobiControlSyncedAt",
+          "mobiControlError"
         ],
         "type": "object",
         "properties": {
@@ -10666,6 +10726,25 @@
               "string"
             ],
             "format": "int32"
+          },
+          "mobiControlName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "mobiControlSyncedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "mobiControlError": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       }

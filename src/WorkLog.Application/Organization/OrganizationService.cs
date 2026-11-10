@@ -63,7 +63,10 @@ public sealed record WorkSiteDto(
     int RadiusMeters,
     IReadOnlyList<GeoPointDto> Vertices,
     bool IsActive,
-    int WorkOrdersThisWeek);
+    int WorkOrdersThisWeek,
+    string? MobiControlName,
+    DateTimeOffset? MobiControlSyncedAt,
+    string? MobiControlError);
 
 public sealed record SaveWorkSiteCommand(
     string? Name,
@@ -90,6 +93,9 @@ public interface IOrganizationService
     Task<OperationResult<WorkSiteDto>> CreateSiteAsync(SaveWorkSiteCommand command, CancellationToken ct = default);
     Task<OperationResult<WorkSiteDto>> UpdateSiteAsync(Guid id, SaveWorkSiteCommand command, CancellationToken ct = default);
     Task<OperationResult<WorkSiteDto>> SetSiteActiveAsync(Guid id, bool active, CancellationToken ct = default);
+
+    /// <summary>Vuelve a llevar a MobiControl un sitio (o todos, con <paramref name="id"/> null).</summary>
+    Task<OperationResult<IReadOnlyList<WorkSiteDto>>> SyncSitesToMobiControlAsync(Guid? id, CancellationToken ct = default);
 }
 
 internal sealed class OrganizationService(
@@ -103,7 +109,8 @@ internal sealed class OrganizationService(
     Parameters.IParameterProvider parameters,
     IAuditTrail audit,
     IUnitOfWork unitOfWork,
-    TimeProvider clock) : IOrganizationService
+    TimeProvider clock,
+    ISiteGeofenceSync geofences) : IOrganizationService
 {
     // ── Sedes ───────────────────────────────────────────────────────────────
 
@@ -359,6 +366,10 @@ internal sealed class OrganizationService(
         sites.Add(created.Value);
         audit.Record("site.created", $"Creó el sitio {created.Value.Name} ({DescribeGeofence(created.Value)}).", "Sitios", created.Value.Id.ToString());
         await unitOfWork.SaveChangesAsync(ct);
+
+        // El sitio ya quedó; la consola se intenta después y un fallo solo lo deja pendiente.
+        await geofences.SyncAsync(created.Value, shapeChanged: false, ct);
+        await unitOfWork.SaveChangesAsync(ct);
         return ToDto(created.Value, 0);
     }
 
@@ -374,11 +385,16 @@ internal sealed class OrganizationService(
         if (geofence.IsFailure) return OperationResult<WorkSiteDto>.From(geofence.Error!);
 
         var before = DescribeGeofence(site);
+        var shapeBefore = (site.Shape, site.CenterLatitude, site.CenterLongitude, site.RadiusMeters, site.PolygonVertices);
         var updated = site.Update(command.Name ?? string.Empty, command.Address, geofence.Value);
         if (updated.IsFailure) return OperationResult<WorkSiteDto>.From(updated.Error!);
 
         audit.Record("site.updated", $"Actualizó el sitio {site.Name}.", "Sitios", site.Id.ToString(),
             new { Geofence = before }, new { Geofence = DescribeGeofence(site) });
+        await unitOfWork.SaveChangesAsync(ct);
+
+        var shapeChanged = shapeBefore != (site.Shape, site.CenterLatitude, site.CenterLongitude, site.RadiusMeters, site.PolygonVertices);
+        await geofences.SyncAsync(site, shapeChanged, ct);
         await unitOfWork.SaveChangesAsync(ct);
         var counts = await WeekWorkOrdersAsync(ct);
         return ToDto(site, counts.GetValueOrDefault(site.Id));
@@ -395,7 +411,27 @@ internal sealed class OrganizationService(
         audit.Record(active ? "site.activated" : "site.deactivated", $"{(active ? "Activó" : "Desactivó")} el sitio {site.Name}.",
             "Sitios", site.Id.ToString());
         await unitOfWork.SaveChangesAsync(ct);
+
+        // Desactivar lo borra de MobiControl; activar lo vuelve a crear.
+        await geofences.SyncAsync(site, shapeChanged: false, ct);
+        await unitOfWork.SaveChangesAsync(ct);
         return ToDto(site, 0);
+    }
+
+    public async Task<OperationResult<IReadOnlyList<WorkSiteDto>>> SyncSitesToMobiControlAsync(Guid? id, CancellationToken ct = default)
+    {
+        var targets = id is { } siteId
+            ? (await sites.FindAsync(siteId, ct) is { } one ? [one] : [])
+            : (await sites.ListAsync(true, ct)).Where(s => s.IsActive || s.MobiControlName is not null).ToList();
+        if (id is not null && targets.Count == 0) return OperationResult<IReadOnlyList<WorkSiteDto>>.NotFound("El sitio no existe.");
+
+        foreach (var site in targets) await geofences.SyncAsync(site, shapeChanged: false, ct);
+
+        var pending = targets.Count(s => s.MobiControlError is not null);
+        audit.Record("site.mobicontrol_synced",
+            $"Sincronizó {targets.Count} sitio(s) con MobiControl{(pending > 0 ? $" ({pending} pendiente(s))" : "")}.", "Sitios", id?.ToString());
+        await unitOfWork.SaveChangesAsync(ct);
+        return targets.Select(s => ToDto(s, 0)).ToList();
     }
 
     private async Task<Result<Geofence>> BuildGeofenceAsync(SaveWorkSiteCommand command, CancellationToken ct)
@@ -434,5 +470,5 @@ internal sealed class OrganizationService(
     private static WorkSiteDto ToDto(WorkSite s, int workOrders) =>
         new(s.Id, s.Name, s.Address, s.Shape, s.CenterLatitude, s.CenterLongitude, s.RadiusMeters,
             s.Geofence.Vertices.Select(v => new GeoPointDto(v.Latitude, v.Longitude)).ToList(),
-            s.IsActive, workOrders);
+            s.IsActive, workOrders, s.MobiControlName, s.MobiControlSyncedAt, s.MobiControlError);
 }

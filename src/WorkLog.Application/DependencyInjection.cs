@@ -45,6 +45,7 @@ public static class DependencyInjection
         services.AddScoped<Devices.IDeviceControlService, Devices.DeviceControlService>();
         services.AddScoped<Integrations.IOneLinkService, Integrations.OneLinkService>();
         services.AddScoped<Access.IMobileAuthService, Access.MobileAuthService>();
+        services.AddScoped<Organization.ISiteGeofenceSync, Organization.SiteGeofenceSync>();
         services.AddScoped<Workdays.IActivityLogService, Workdays.ActivityLogService>();
         services.AddScoped<IWorkdayAutomation, WorkdayAutomation>();
 

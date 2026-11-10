@@ -154,6 +154,7 @@ Reglas de la Fase 2:
     pasa, no se puede activar el control y la jornada no espera a MobiControl, aunque la base diga lo contrario.
   - Con órdenes, al abrir o cerrar la jornada se envía `WL_JORNADA` y, si aplica, se cierra la sesión de Shared Device;
     con política `Block`, si MobiControl no responde no se deja iniciar.
+- **Geocercas en MobiControl.** Cada sitio activo se lleva a la consola de la empresa como geocerca «WorkLog · {nombre}» (la consola la comparte Geomonitoreo; WorkLog no toca las demás). Cambiar el nombre la renombra; cambiar la forma la borra y la crea (MobiControl no edita vértices); desactivar el sitio la borra y activarlo la crea. Los círculos van como polígonos de 48 lados. Si la consola falla, el sitio se guarda igual y queda pendiente con el motivo (`/api/v1/sites/{id}/mobicontrol-sync` o `/api/v1/sites/mobicontrol-sync` para reintentar).
 - **Archivos.** `Storage:Provider = Local | AzureBlob`. Para Azure se configuran `Storage:ConnectionString` como secreto y `Storage:Container`.
 
 ## Próximas fases

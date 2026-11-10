@@ -10,6 +10,8 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using WorkLog.Application.Abstractions;
 using WorkLog.Application.Integrations;
+using WorkLog.Application.Organization;
+using WorkLog.Domain.Geo;
 using WorkLog.Domain.Devices;
 
 namespace WorkLog.Infrastructure.MobiControl;
@@ -25,7 +27,7 @@ internal sealed class MobiControlRestGateway(
     ITenantContext tenant,
     ITenantConfiguration configuration,
     IMemoryCache cache,
-    ILogger<MobiControlRestGateway> logger) : IDeviceManagementGateway
+    ILogger<MobiControlRestGateway> logger) : IDeviceManagementGateway, IGeofenceGateway
 {
     public const string HttpClientName = "mobicontrol";
 
@@ -128,6 +130,135 @@ internal sealed class MobiControlRestGateway(
 
     public Task<GatewayResult> LogoutSharedAsync(string deviceId, CancellationToken ct = default) =>
         Task.FromResult(new GatewayResult(DeviceCommandStatus.Failed, NoCommands));
+
+    // ── Geocercas ───────────────────────────────────────────────────────────
+    // API comprobada por Geomonitoreo contra la consola (no es pública):
+    //   POST /geofences crea { Name, Vertices: [{ Latitude, Longitude }] }, polígono cerrado (primer
+    //     vértice repetido al final) y con al menos cuatro puntos.
+    //   GET /geofences/{nombre} la lee; si no existe responde 403, no 404.
+    //   PUT /geofences/{nombre} solo la renombra (ignora los vértices, pero los exige en el cuerpo).
+    //   DELETE /geofences/{nombre} la borra.
+
+    public async Task<string?> UnavailableReasonAsync(CancellationToken ct = default)
+    {
+        if (tenant.TenantId is not { } tenantId) return "No hay empresa en la petición.";
+        var session = await OpenAsync(tenantId, ct);
+        return session.Token is null ? session.Problem ?? "MobiControl no responde." : null;
+    }
+
+    public async Task<GeofenceCallResult> CreateAsync(string name, IReadOnlyList<GeoPoint> ring, CancellationToken ct = default)
+    {
+        var points = ring.Select(p => new { p.Latitude, p.Longitude }).ToList();
+        if (points.Count > 0 && (points[0].Latitude != points[^1].Latitude || points[0].Longitude != points[^1].Longitude))
+            points.Add(points[0]);
+
+        var (status, text) = await GeofenceCallAsync(HttpMethod.Post, null, new { Name = name, Vertices = points }, ct);
+        if (status is null) return GeofenceCallResult.Fail(text);
+        if (status is < 200 or >= 300) return Failure(status.Value, text);
+
+        return GeofenceCallResult.Ok(await ReferenceIdAsync(name, ct));
+    }
+
+    public async Task<GeofenceCallResult> RenameAsync(string currentName, string newName, CancellationToken ct = default)
+    {
+        var (status, text) = await GeofenceCallAsync(HttpMethod.Get, currentName, null, ct);
+        if (status is null) return GeofenceCallResult.Fail(text);
+        if (status is 403 or 404) return GeofenceCallResult.Fail($"La geocerca «{currentName}» ya no está en MobiControl: sincroniza el sitio para crearla.");
+        if (status is < 200 or >= 300) return Failure(status.Value, text);
+
+        // El PUT exige los vértices aunque no los use: se mandan los que ya tiene.
+        using var current = JsonDocument.Parse(text);
+        var vertices = current.RootElement.TryGetProperty("Vertices", out var v) && v.ValueKind == JsonValueKind.Array
+            ? v.EnumerateArray().Select(p => new { Latitude = p.GetProperty("Latitude").GetDouble(), Longitude = p.GetProperty("Longitude").GetDouble() }).ToList()
+            : [];
+
+        (status, text) = await GeofenceCallAsync(HttpMethod.Put, currentName, new { Name = newName, Vertices = vertices }, ct);
+        if (status is null) return GeofenceCallResult.Fail(text);
+        if (status is < 200 or >= 300) return Failure(status.Value, text);
+
+        return GeofenceCallResult.Ok(await ReferenceIdAsync(newName, ct));
+    }
+
+    public async Task<GeofenceCallResult> DeleteAsync(string name, CancellationToken ct = default)
+    {
+        var (status, text) = await GeofenceCallAsync(HttpMethod.Delete, name, null, ct);
+        if (status is null) return GeofenceCallResult.Fail(text);
+        return status is (>= 200 and < 300) or 403 or 404 ? GeofenceCallResult.Ok() : Failure(status.Value, text);
+    }
+
+    private async Task<string?> ReferenceIdAsync(string name, CancellationToken ct)
+    {
+        var (status, text) = await GeofenceCallAsync(HttpMethod.Get, name, null, ct);
+        if (status is not (>= 200 and < 300) || string.IsNullOrWhiteSpace(text)) return null;
+        try
+        {
+            using var json = JsonDocument.Parse(text);
+            return Text(json.RootElement, "ReferenceId");
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Una llamada a /geofences con el token de la empresa. Estado null: no hubo respuesta (el texto dice por qué).</summary>
+    private async Task<(int? Status, string Text)> GeofenceCallAsync(HttpMethod method, string? name, object? body, CancellationToken ct)
+    {
+        if (tenant.TenantId is not { } tenantId) return (null, "No hay empresa en la petición.");
+        var session = await OpenAsync(tenantId, ct);
+        if (session.Token is null) return (null, session.Problem ?? "MobiControl no responde.");
+
+        var connection = session.Connection!;
+        var path = name is null ? "api/geofences" : $"api/geofences/{Uri.EscapeDataString(name)}";
+        using var limit = Limit(connection, ct);
+        try
+        {
+            using var request = new HttpRequestMessage(method, new Uri(connection.BaseUrl, path));
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", session.Token);
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            if (body is not null) request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+
+            using var response = await httpFactory.CreateClient(HttpClientName).SendAsync(request, limit.Token);
+            if (response.StatusCode == HttpStatusCode.Unauthorized) Tokens.TryRemove(tenantId, out _);
+
+            var text = await response.Content.ReadAsStringAsync(limit.Token);
+            return ((int)response.StatusCode, text.Length > 900 ? text[..900] : text);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return (null, $"La consola {connection.BaseUrl.Host} no respondió a tiempo.");
+        }
+        catch (HttpRequestException ex)
+        {
+            logger.LogWarning(ex, "Sin conexión con MobiControl de {Tenant} en geocercas.", tenantId);
+            return (null, $"No se pudo conectar con la consola {connection.BaseUrl.Host}.");
+        }
+    }
+
+    /// <summary>Los códigos de error de MobiControl para geocercas, en palabras.</summary>
+    private static GeofenceCallResult Failure(int status, string text)
+    {
+        int? code = null;
+        string? message = null;
+        try
+        {
+            using var json = JsonDocument.Parse(text);
+            code = Int(json.RootElement, "ErrorCode");
+            message = Text(json.RootElement, "Message");
+        }
+        catch (JsonException)
+        {
+            // Cuerpo vacío o que no es JSON.
+        }
+
+        return code switch
+        {
+            3200 => GeofenceCallResult.Fail("Ya existe en MobiControl una geocerca con ese nombre.", alreadyExists: true),
+            3201 => GeofenceCallResult.Fail("MobiControl pide al menos tres puntos distintos en la geocerca."),
+            3204 => GeofenceCallResult.Fail("MobiControl rechazó un polígono sin cerrar."),
+            _ => GeofenceCallResult.Fail($"MobiControl rechazó la geocerca ({code?.ToString() ?? status.ToString()}){(message is null ? "." : $": {message}")}")
+        };
+    }
 
     // ── Sesión y token ──────────────────────────────────────────────────────
 

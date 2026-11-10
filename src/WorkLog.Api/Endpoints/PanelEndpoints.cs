@@ -111,7 +111,15 @@ public static class PanelEndpoints
             .RequirePermission(Permission.ManageSettings).Produces<WorkSiteDto>().WithSummary("Actualiza un sitio.");
         sites.MapPost("/{id:guid}/active", async (Guid id, ActiveRequest request, IOrganizationService service, CancellationToken ct) =>
                 (await service.SetSiteActiveAsync(id, request.Active, ct)).ToHttpResult())
-            .RequirePermission(Permission.ManageSettings).Produces<WorkSiteDto>().WithSummary("Activa o desactiva un sitio.");
+            .RequirePermission(Permission.ManageSettings).Produces<WorkSiteDto>().WithSummary("Activa o desactiva un sitio. Desactivar lo borra de MobiControl; activar lo vuelve a crear.");
+        sites.MapPost("/mobicontrol-sync", async (IOrganizationService service, CancellationToken ct) =>
+                (await service.SyncSitesToMobiControlAsync(null, ct)).ToHttpResult())
+            .RequirePermission(Permission.ManageSettings).Produces<IReadOnlyList<WorkSiteDto>>()
+            .WithSummary("Lleva a MobiControl todos los sitios (prefijo «WorkLog · »): crea, renombra o borra lo que falte.");
+        sites.MapPost("/{id:guid}/mobicontrol-sync", async (Guid id, IOrganizationService service, CancellationToken ct) =>
+                (await service.SyncSitesToMobiControlAsync(id, ct)).ToHttpResult())
+            .RequirePermission(Permission.ManageSettings).Produces<IReadOnlyList<WorkSiteDto>>()
+            .WithSummary("Reintenta llevar un sitio a MobiControl.");
     }
 
     private static void MapSchedules(IEndpointRouteBuilder app)

@@ -62,6 +62,28 @@ public sealed class Geofence
             : new Geofence(shape, center, radiusMeters, []);
     }
 
+    /// <summary>
+    /// La geocerca como polígono: las esquinas, o el círculo con <paramref name="circleSides"/> lados
+    /// (MobiControl solo guarda polígonos; Geomonitoreo usa 48).
+    /// </summary>
+    public IReadOnlyList<GeoPoint> Ring(int circleSides = 48)
+    {
+        if (Shape == GeofenceShape.Polygon) return Vertices;
+
+        const double metersPerDegree = 111_320;
+        var latRad = Center.Latitude * Math.PI / 180;
+        var points = new List<GeoPoint>(circleSides);
+        for (var i = 0; i < circleSides; i++)
+        {
+            var angle = 2 * Math.PI * i / circleSides;
+            var lat = Center.Latitude + RadiusMeters * Math.Cos(angle) / metersPerDegree;
+            var lng = Center.Longitude + RadiusMeters * Math.Sin(angle) / (metersPerDegree * Math.Cos(latRad));
+            points.Add(GeoPoint.Create(Math.Round(lat, 7), Math.Round(lng, 7)).Value);
+        }
+
+        return points;
+    }
+
     public bool Contains(GeoPoint point) => Shape switch
     {
         GeofenceShape.Circle => Center.DistanceTo(point) <= RadiusMeters,

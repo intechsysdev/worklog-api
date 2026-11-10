@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using WorkLog.Application.Abstractions;
 using WorkLog.Infrastructure.One;
@@ -82,11 +83,16 @@ public static class DependencyInjection
             // El plazo de cada llamada lo pone la variable MOBICONTROL_TIMEOUT_SEGUNDOS de la empresa.
             services.AddHttpClient(MobiControl.MobiControlRestGateway.HttpClientName, http => http.Timeout = TimeSpan.FromSeconds(90));
             services.AddScoped<IDeviceManagementGateway, MobiControl.MobiControlRestGateway>();
+            // El mismo adaptador lleva las geocercas: comparte el token y la caché de la consola.
+            services.AddScoped<Application.Organization.IGeofenceGateway>(sp =>
+                (MobiControl.MobiControlRestGateway)sp.GetRequiredService<IDeviceManagementGateway>());
         }
         else
         {
             services.AddScoped<IDeviceManagementGateway, MobiControl.DisconnectedMobiControlGateway>();
         }
+
+        services.TryAddScoped<Application.Organization.IGeofenceGateway, MobiControl.UnavailableGeofenceGateway>();
 
         services.AddOptions<OneOptions>()
             .Bind(configuration.GetSection(OneOptions.SectionName))
