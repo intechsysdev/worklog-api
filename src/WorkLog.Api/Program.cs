@@ -76,10 +76,10 @@ builder.Services.AddRateLimiter(options =>
                 AutoReplenishment = true
             }));
 
-    // Ingreso a la app: pocos intentos por IP, además del bloqueo por persona tras 5 fallos.
+    // Ingreso a la app: tope por IP (varios teléfonos pueden compartir la red de la oficina), además del bloqueo por persona tras 5 fallos.
     options.AddPolicy(WorkLog.Api.Endpoints.MobileAuthEndpoints.AuthRateLimit, http =>
         RateLimitPartition.GetFixedWindowLimiter(http.Connection.RemoteIpAddress?.ToString() ?? "anon",
-            _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = 20, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
 
     options.OnRejected = async (context, ct) =>
     {

@@ -42,11 +42,23 @@ public static class MeEndpoints
             .AllowPendingPasswordChange()
             .Produces<IReadOnlyList<OneTenantAccess>>().WithSummary("Empresas con WorkLog asignado a las que llega el usuario.");
 
-        me.MapPost("/password", async (HttpContext http, ChangePasswordCommand command, IMobileAuthService auth, CancellationToken ct) =>
-                http.Items[OneClaims.AppSessionItem] is AppSession app
-                    ? (await auth.ChangePasswordAsync(app, command, ct)).ToHttpResult()
-                    : Results.Problem("La contraseña del panel se cambia en INTECHSYS ONE.", title: "No aplica",
-                        statusCode: StatusCodes.Status400BadRequest, extensions: new Dictionary<string, object?> { ["code"] = "password.one" }))
+        me.MapPost("/password", async (HttpContext http, ChangePasswordCommand command, IMobileAuthService auth, IMemoryCache cache,
+                CancellationToken ct) =>
+            {
+                if (http.Items[OneClaims.AppSessionItem] is not AppSession app)
+                    return Results.Problem("La contraseña del panel se cambia en INTECHSYS ONE.", title: "No aplica",
+                        statusCode: StatusCodes.Status400BadRequest, extensions: new Dictionary<string, object?> { ["code"] = "password.one" });
+
+                var changed = await auth.ChangePasswordAsync(app, command, ct);
+
+                // La sesión en caché aún dice "contraseña temporal": sin esto, lo siguiente que pide la app
+                // (la política de datos) respondería 403 durante unos segundos aunque ya la cambió.
+                if (changed.Succeeded && http.Request.Headers.Authorization.ToString() is var header &&
+                    header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                    cache.Remove(OneClaims.AppSessionCacheKey(header[7..].Trim()));
+
+                return changed.ToHttpResult();
+            })
             .AllowPendingPasswordChange()
             .WithSummary("Cambia la contraseña de la app (usuarios con contraseña de WorkLog). Cierra las demás sesiones.");
 

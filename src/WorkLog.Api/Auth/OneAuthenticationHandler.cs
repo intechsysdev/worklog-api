@@ -25,6 +25,9 @@ public static class OneClaims
     public const string AppSessionClaim = "wl:app_session";
 
     public static string TokenHash(string token) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+
+    /// <summary>Clave de la caché de una sesión de la app: se descarta cuando la sesión cambia (p. ej. al cambiar la contraseña).</summary>
+    public static string AppSessionCacheKey(string token) => "wl:app:" + TokenHash(token);
 }
 
 /// <summary>
@@ -77,7 +80,7 @@ public sealed class OneAuthenticationHandler(
 
     private async Task<AuthenticateResult> AuthenticateAppAsync(string token)
     {
-        var key = "wl:app:" + OneClaims.TokenHash(token);
+        var key = OneClaims.AppSessionCacheKey(token);
         if (!cache.TryGetValue<AppSession>(key, out var session) || session is null)
         {
             session = await appAuth.AuthenticateAsync(token, Context.RequestAborted);
