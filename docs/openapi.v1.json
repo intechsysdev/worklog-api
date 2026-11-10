@@ -684,6 +684,166 @@
         }
       }
     },
+    "/api/v1/activity-log": {
+      "get": {
+        "tags": [
+          "Registro de actividades"
+        ],
+        "summary": "Jornadas de las personas en un rango (máx. 31 días), con sus totales.",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "memberId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "branchId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityLogDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/activity-log/export": {
+      "get": {
+        "tags": [
+          "Registro de actividades"
+        ],
+        "summary": "Exporta el registro a Excel: una fila por actividad.",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "memberId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "branchId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/activity-log/workdays/{id}": {
+      "get": {
+        "tags": [
+          "Registro de actividades"
+        ],
+        "summary": "Detalle de una jornada: barra del día, actividades, pausas, resultados y evidencias.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkdayDetailDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/activity-log/evidence/{id}": {
+      "get": {
+        "tags": [
+          "Registro de actividades"
+        ],
+        "summary": "Foto o firma de una actividad.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/v1/branches": {
       "get": {
         "tags": [
@@ -3880,6 +4040,141 @@
           }
         }
       },
+      "ActivityDetailDto": {
+        "required": [
+          "id",
+          "name",
+          "categoryName",
+          "timeClass",
+          "color",
+          "workOrderNumber",
+          "workSiteName",
+          "startedAt",
+          "endedAt",
+          "running",
+          "minutes",
+          "pausedMinutes",
+          "pauses",
+          "outcome",
+          "outcomeLabel",
+          "observation",
+          "autoFinished",
+          "startGeofence",
+          "endGeofence",
+          "photoCount",
+          "hasSignature"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "categoryName": {
+            "type": "string"
+          },
+          "timeClass": {
+            "$ref": "#/components/schemas/TimeClass"
+          },
+          "color": {
+            "type": "string"
+          },
+          "workOrderNumber": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "workSiteName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "minutes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pausedMinutes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pauses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivityPauseDto"
+            }
+          },
+          "outcome": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ActivityOutcome"
+              }
+            ]
+          },
+          "outcomeLabel": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "observation": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "autoFinished": {
+            "type": "boolean"
+          },
+          "startGeofence": {
+            "$ref": "#/components/schemas/GeofenceStatus"
+          },
+          "endGeofence": {
+            "$ref": "#/components/schemas/GeofenceStatus"
+          },
+          "photoCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "hasSignature": {
+            "type": "boolean"
+          }
+        },
+        "description": "Una actividad con todo lo que registró el técnico al iniciarla y al cerrarla."
+      },
       "ActivityEventCommand": {
         "required": [
           "clientEventId",
@@ -3911,6 +4206,240 @@
                 "$ref": "#/components/schemas/LocationInput"
               }
             ]
+          }
+        }
+      },
+      "ActivityLogDto": {
+        "required": [
+          "from",
+          "to",
+          "rows",
+          "totals"
+        ],
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivityLogRowDto"
+            }
+          },
+          "totals": {
+            "$ref": "#/components/schemas/ActivityLogTotalsDto"
+          }
+        }
+      },
+      "ActivityLogRowDto": {
+        "required": [
+          "workdayId",
+          "memberId",
+          "memberName",
+          "branchId",
+          "branchName",
+          "date",
+          "status",
+          "startedAt",
+          "endedAt",
+          "closeKind",
+          "wasAdjusted",
+          "lateMinutes",
+          "startGeofence",
+          "endGeofence",
+          "activityCount",
+          "workedMinutes",
+          "productiveMinutes",
+          "withoutActivityMinutes",
+          "pausedMinutes",
+          "photoCount",
+          "signatureCount"
+        ],
+        "type": "object",
+        "properties": {
+          "workdayId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "memberId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "memberName": {
+            "type": "string"
+          },
+          "branchId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "branchName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "status": {
+            "$ref": "#/components/schemas/WorkdayStatus"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "closeKind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CloseKind"
+              }
+            ]
+          },
+          "wasAdjusted": {
+            "type": "boolean"
+          },
+          "lateMinutes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "startGeofence": {
+            "$ref": "#/components/schemas/GeofenceStatus"
+          },
+          "endGeofence": {
+            "$ref": "#/components/schemas/GeofenceStatus"
+          },
+          "activityCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "workedMinutes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "productiveMinutes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "withoutActivityMinutes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pausedMinutes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "photoCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "signatureCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        },
+        "description": "Una jornada en el registro: quién, cuándo, cuánto y qué dejó (actividades y evidencias)."
+      },
+      "ActivityLogTotalsDto": {
+        "required": [
+          "workdays",
+          "people",
+          "activities",
+          "workedMinutes",
+          "productiveMinutes"
+        ],
+        "type": "object",
+        "properties": {
+          "workdays": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "people": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "activities": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "workedMinutes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "productiveMinutes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -3949,6 +4478,26 @@
           "Rescheduled",
           null
         ]
+      },
+      "ActivityPauseDto": {
+        "required": [
+          "startedAt",
+          "endedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
       },
       "ActivityStatus": {
         "enum": [
@@ -5358,6 +5907,32 @@
                 "$ref": "#/components/schemas/IFormFile"
               }
             ]
+          }
+        }
+      },
+      "EvidenceItemDto": {
+        "required": [
+          "id",
+          "activityRecordId",
+          "kind",
+          "capturedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "activityRecordId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/EvidenceKind"
+          },
+          "capturedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -9313,6 +9888,68 @@
           }
         }
       },
+      "WorkdayDetailDto": {
+        "required": [
+          "workday",
+          "scheduledStart",
+          "scheduledEnd",
+          "startSiteName",
+          "note",
+          "segments",
+          "activities",
+          "evidence"
+        ],
+        "type": "object",
+        "properties": {
+          "workday": {
+            "$ref": "#/components/schemas/ActivityLogRowDto"
+          },
+          "scheduledStart": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "time"
+          },
+          "scheduledEnd": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "time"
+          },
+          "startSiteName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SegmentDto"
+            }
+          },
+          "activities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivityDetailDto"
+            }
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EvidenceItemDto"
+            }
+          }
+        }
+      },
       "WorkdayDto": {
         "required": [
           "id",
@@ -9677,6 +10314,9 @@
     },
     {
       "name": "Mi jornada"
+    },
+    {
+      "name": "Registro de actividades"
     },
     {
       "name": "Organización"

@@ -37,6 +37,32 @@ public static class PanelEndpoints
         team.MapGet("/today", async (Guid? branchId, TeamFilter? filter, string? search, ITeamService service, CancellationToken ct) =>
                 (await service.GetTodayAsync(branchId, filter ?? TeamFilter.All, search, ct)).ToHttpResult())
             .Produces<TeamTodayDto>().WithSummary("Equipo hoy: indicadores y estado de cada persona (actividad, pausa, sin actividad, sin iniciar).");
+
+        var log = app.MapGroup("/api/v1/activity-log").WithTags("Registro de actividades").RequireAuthorization()
+            .RequirePermission(Permission.ViewTeam);
+
+        log.MapGet("/", async (DateOnly from, DateOnly to, Guid? memberId, Guid? branchId, IActivityLogService service, CancellationToken ct) =>
+                (await service.ListAsync(from, to, memberId, branchId, ct)).ToHttpResult())
+            .Produces<ActivityLogDto>()
+            .WithSummary($"Jornadas de las personas en un rango (máx. {ActivityLog.MaxDays} días), con sus totales.");
+
+        log.MapGet("/export", async (DateOnly from, DateOnly to, Guid? memberId, Guid? branchId, IActivityLogService service, CancellationToken ct) =>
+            {
+                var file = await service.ExportAsync(from, to, memberId, branchId, ct);
+                return file.Succeeded ? Results.File(file.Value!.Content, file.Value.ContentType, file.Value.FileName) : file.ToHttpResult();
+            })
+            .WithSummary("Exporta el registro a Excel: una fila por actividad.");
+
+        log.MapGet("/workdays/{id:guid}", async (Guid id, IActivityLogService service, CancellationToken ct) =>
+                (await service.GetWorkdayAsync(id, ct)).ToHttpResult())
+            .Produces<WorkdayDetailDto>().WithSummary("Detalle de una jornada: barra del día, actividades, pausas, resultados y evidencias.");
+
+        log.MapGet("/evidence/{id:guid}", async (Guid id, IActivityLogService service, CancellationToken ct) =>
+            {
+                var file = await service.OpenEvidenceAsync(id, ct);
+                return file.Succeeded ? Results.File(file.Value!.Content, file.Value.ContentType) : file.ToHttpResult();
+            })
+            .WithSummary("Foto o firma de una actividad.");
     }
 
     private static void MapOrganization(IEndpointRouteBuilder app)
