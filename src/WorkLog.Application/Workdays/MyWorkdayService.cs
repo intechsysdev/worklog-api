@@ -115,6 +115,20 @@ internal sealed class MyWorkdayService(
                 activity.PhotoCount, activity.HasSignature, activity.StartGeofence));
         }
 
+        // Un receso (la jornada se cerró y se reanudó) se ve como un cierre y un reinicio, en su
+        // lugar entre las actividades. Los tipos son los que la app ya conoce.
+        foreach (var pause in workday.Breaks)
+        {
+            entries.Add(new TimelineEntryDto("close", "Cierre de jornada", pause.StartedAt, null, 0, "#1E1F1D", false, null, null,
+                null, null, false, 0, false, GeofenceStatus.NotApplicable));
+            entries.Add(new TimelineEntryDto("start", "Reinicio de actividades", pause.EndedAt, null, 0, "#1E1F1D", false, null, null,
+                null, null, false, 0, false, GeofenceStatus.NotApplicable));
+        }
+
+        // A la misma hora, el cierre o el reinicio van antes que la actividad que empieza ahí.
+        if (workday.Breaks.Count > 0)
+            entries = entries.OrderBy(e => e.Start).ThenBy(e => e.Kind is "start" or "close" ? 0 : 1).ToList();
+
         if (workday.EndedAt is { } ended)
         {
             entries.Add(new TimelineEntryDto("close", workday.CloseKind == CloseKind.Automatic ? "Cierre automático" : "Cierre de jornada",
@@ -181,8 +195,8 @@ internal sealed class MyWorkdayService(
             }
 
             var date = LocalTime.DateOf(at, context.TimeZone);
-            if (await workdays.FindByDateAsync(context.Member.Id, date, ct) is { IsOpen: false })
-                return DomainError.Conflict("workday.already_closed", "Ya cerraste la jornada de hoy. Si fue un error, solicita un ajuste.");
+            if (await workdays.FindByDateAsync(context.Member.Id, date, ct) is { IsOpen: false } closed)
+                return await ResumeWorkdayAsync(context, closed, command.Location, at, queued, ct);
 
             var plan = await calculator.PlanAsync(context.Member, date, ct);
             var decision = WorkdayPolicy.EvaluateStart(plan, at, context.TimeZone,
@@ -220,6 +234,84 @@ internal sealed class MyWorkdayService(
 
             return new Applied(decision.Value.Adjusted ? SyncOutcome.Adjusted : SyncOutcome.Accepted, message, workday.Id);
         }, ct);
+
+    /// <summary>
+    /// Reinicio de actividades: la jornada de hoy ya está cerrada y el supervisor aprobó reanudarla.
+    /// Vuelve a quedar abierta desde este momento y el tiempo que estuvo cerrada queda como receso.
+    /// </summary>
+    private async Task<Result<Applied>> ResumeWorkdayAsync(Context context, Workday closed, LocationInput? location, DateTimeOffset at,
+        bool queued, CancellationToken ct)
+    {
+        var sameDay = await requests.ListAsync([context.Member.Id], closed.Date, closed.Date, null, ct);
+        var resume = ResumeStatus(closed, sameDay);
+        if (resume.State != ResumeState.Approved)
+        {
+            return DomainError.Conflict("workday.already_closed", resume.State == ResumeState.Pending
+                ? "Ya cerraste la jornada de hoy y tu solicitud de reinicio sigue pendiente de aprobación."
+                : "Ya cerraste la jornada de hoy. Para seguir trabajando, solicita el reinicio de actividades.");
+        }
+
+        var plan = await calculator.PlanAsync(context.Member, closed.Date, ct);
+        if (ShiftEnd(plan, closed.Date, sameDay, context.TimeZone) is { } end && at >= end)
+            return DomainError.Conflict("workday.shift_over", ShiftOverMessage);
+
+        var reading = ToReading(location, at);
+        if (reading.IsFailure) return reading.Error!;
+
+        var mainSite = context.Branch?.MainSiteId is { } siteId ? await sites.FindAsync(siteId, ct) : null;
+        var geofence = Evaluate(mainSite, reading.Value, context);
+
+        if (!await devices.OnWorkdayOpeningAsync(context.Member, ct))
+            return DomainError.Forbidden("device.unreachable",
+                "No se pudieron habilitar tus apps de trabajo: MobiControl no responde. Intenta de nuevo o avisa a soporte.");
+
+        var resumed = closed.Resume(at);
+        if (resumed.IsFailure) return resumed.Error!;
+
+        context.Open = closed;
+        RecordPoint(closed, null, LocationEvent.WorkdayStart, reading.Value, geofence);
+        audit.Record("workday.resumed", $"Reanudó la jornada{(queued ? " sin conexión" : "")} (reinicio de actividades aprobado).",
+            "Registros", closed.Id.ToString(), after: new { ResumedAt = TimeZoneInfo.ConvertTime(at, context.TimeZone) },
+            occurredAt: queued ? at : null);
+
+        return new Applied(SyncOutcome.Accepted, null, closed.Id);
+    }
+
+    private const string ShiftOverMessage = "Tu turno de hoy ya terminó. Solicita horas extra para seguir trabajando.";
+
+    /// <summary>
+    /// Estado del reinicio de una jornada cerrada. Solo cuenta lo resuelto después del último
+    /// cierre: una aprobación ya usada (se reanudó y se volvió a cerrar) no sirve otra vez.
+    /// </summary>
+    private static (ResumeState State, string? Comment) ResumeStatus(Workday closed, IReadOnlyList<Domain.Requests.WorkRequest> sameDay)
+    {
+        var closedAt = closed.EndedAt ?? DateTimeOffset.MinValue;
+        var latest = sameDay
+            .Where(r => r.Type == Domain.Requests.RequestType.Resume && r.WorkdayId == closed.Id)
+            .Where(r => r.IsPending || r.ResolvedAt >= closedAt)
+            .OrderByDescending(r => r.SubmittedAt)
+            .FirstOrDefault();
+
+        return latest?.Status switch
+        {
+            Domain.Requests.RequestStatus.Pending => (ResumeState.Pending, null),
+            Domain.Requests.RequestStatus.Approved => (ResumeState.Approved, latest.ResolverComment),
+            Domain.Requests.RequestStatus.Rejected => (ResumeState.Rejected, latest.ResolverComment),
+            _ => (ResumeState.None, null)
+        };
+    }
+
+    /// <summary>Fin del turno de ese día, corrido hasta el fin de las horas extra aprobadas. Sin turno, no hay límite.</summary>
+    private static DateTimeOffset? ShiftEnd(DayPlan plan, DateOnly date, IReadOnlyList<Domain.Requests.WorkRequest> sameDay, TimeZoneInfo zone)
+    {
+        if (plan.End is not { } planEnd) return null;
+
+        var overtime = sameDay
+            .Where(r => r.Type == Domain.Requests.RequestType.Overtime && r.Status == Domain.Requests.RequestStatus.Approved)
+            .Select(r => r.OvertimeTo)
+            .Max();
+        return ShiftWindow.ToInstant(date, overtime is { } o && o > planEnd ? o : planEnd, zone);
+    }
 
     public Task<OperationResult<WorkdayCommandResult>> CloseWorkdayAsync(CloseWorkdayCommand command, CancellationToken ct = default) =>
         ExecuteAsync("workday.close", command.ClientEventId, command.OccurredAt, async (context, at, queued) =>
@@ -657,10 +749,21 @@ internal sealed class MyWorkdayService(
         var controlled = await devices.ControlsAsync(context.Member, ct);
         var shared = controlled && (await devices.DevicesAsync(ct)).GetValueOrDefault(context.Member.DeviceId!) is { IsShared: true };
 
-        var overtimeUntil = (await requests.ListAsync([context.Member.Id], today, today, Domain.Requests.RequestStatus.Approved, ct))
-            .Where(r => r.Type == Domain.Requests.RequestType.Overtime)
+        var sameDay = await requests.ListAsync([context.Member.Id], today, today, null, ct);
+        var overtimeUntil = sameDay
+            .Where(r => r.Type == Domain.Requests.RequestType.Overtime && r.Status == Domain.Requests.RequestStatus.Approved)
             .Select(r => r.OvertimeTo)
             .Max();
+
+        // Con la jornada de hoy cerrada: en qué va su reinicio de actividades.
+        ResumeDto? resume = null;
+        if (workday is { IsOpen: false })
+        {
+            var (state, comment) = ResumeStatus(workday, sameDay);
+            var over = ShiftEnd(plan, today, sameDay, context.TimeZone) is { } shiftEnd && now >= shiftEnd;
+            resume = new ResumeDto(state, state == ResumeState.Approved && !over,
+                state == ResumeState.Approved && over ? ShiftOverMessage : null, comment);
+        }
 
         DateTimeOffset? autoCloseAt = null;
         if (plan.End is { } planEnd)
@@ -695,7 +798,8 @@ internal sealed class MyWorkdayService(
                 p[ParameterKey.AutoCloseGraceMinutes]),
             device,
             overtimeUntil,
-            autoCloseAt);
+            autoCloseAt,
+            resume);
     }
 
     private async Task<WorkdayDto> ToDtoAsync(Workday workday, DateTimeOffset now, CancellationToken ct)

@@ -133,4 +133,37 @@ public sealed class WorkdayTests
 
         workday.Version.ShouldBe(2);
     }
+
+    [Fact]
+    public void Reanudar_la_jornada_la_abre_y_el_tiempo_cerrada_queda_como_receso()
+    {
+        var workday = Open(At(7, 0));
+        workday.StartActivity(Snapshot("Instalación"), At(7, 0), null, GeofenceStatus.NotApplicable);
+        workday.Close(At(9, 0), null, GeofenceStatus.NotApplicable, null, CloseKind.Manual);
+
+        workday.Resume(At(8, 30)).Error!.Code.ShouldBe("workday.out_of_order");
+        workday.Resume(At(11, 0)).IsSuccess.ShouldBeTrue();
+
+        workday.IsOpen.ShouldBeTrue();
+        workday.EndedAt.ShouldBeNull();
+        workday.CloseKind.ShouldBeNull();
+        workday.Breaks.Single().StartedAt.ShouldBe(At(9, 0));
+        workday.Breaks.Single().EndedAt.ShouldBe(At(11, 0));
+        workday.Resume(At(11, 5)).Error!.Code.ShouldBe("workday.open");
+
+        // Sigue aceptando registros, pero no antes de la reanudación.
+        workday.StartActivity(Snapshot("Mantenimiento"), At(10, 0), null, GeofenceStatus.NotApplicable).Error!.Code.ShouldBe("workday.out_of_order");
+        workday.StartActivity(Snapshot("Mantenimiento"), At(11, 30), null, GeofenceStatus.NotApplicable).IsSuccess.ShouldBeTrue();
+        workday.Close(At(12, 30), null, GeofenceStatus.NotApplicable, null, CloseKind.Manual).IsSuccess.ShouldBeTrue();
+
+        // 7–9 trabajado, 9–11 receso (ni trabajo ni inactividad), 11–11:30 sin actividad, 11:30–12:30 trabajado.
+        var (segments, summary) = WorkdayTimeline.Build(workday, At(13, 0));
+        summary.ProductiveMinutes.ShouldBe(180);
+        summary.IdleMinutes.ShouldBe(30);
+        summary.WorkedMinutes.ShouldBe(210);
+        summary.ElapsedMinutes.ShouldBe(210);
+        segments.Where(s => s.Kind == SegmentKind.Idle).ShouldHaveSingleItem().Start.ShouldBe(At(11, 0));
+
+        workday.WorkedIntervals(At(13, 0)).ShouldBe([(At(7, 0), At(9, 0)), (At(11, 0), At(12, 30))]);
+    }
 }

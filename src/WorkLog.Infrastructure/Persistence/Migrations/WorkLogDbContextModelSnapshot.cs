@@ -1799,6 +1799,27 @@ namespace WorkLog.Infrastructure.Persistence.Migrations
                     b.ToTable("Workdays", (string)null);
                 });
 
+            modelBuilder.Entity("WorkLog.Domain.Workdays.WorkdayBreak", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("EndedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("WorkdayId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WorkdayId");
+
+                    b.ToTable("WorkdayBreaks", (string)null);
+                });
+
             modelBuilder.Entity("WorkLog.Domain.Absences.Absence", b =>
                 {
                     b.HasOne("WorkLog.Domain.Access.Member", null)
@@ -1979,6 +2000,15 @@ namespace WorkLog.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("WorkLog.Domain.Workdays.WorkdayBreak", b =>
+                {
+                    b.HasOne("WorkLog.Domain.Workdays.Workday", null)
+                        .WithMany("Breaks")
+                        .HasForeignKey("WorkdayId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("WorkLog.Domain.Payroll.PayrollPeriod", b =>
                 {
                     b.Navigation("Lines");
@@ -1992,6 +2022,8 @@ namespace WorkLog.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("WorkLog.Domain.Workdays.Workday", b =>
                 {
                     b.Navigation("Activities");
+
+                    b.Navigation("Breaks");
                 });
 #pragma warning restore 612, 618
         }

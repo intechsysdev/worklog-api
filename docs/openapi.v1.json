@@ -2956,6 +2956,36 @@
         }
       }
     },
+    "/api/v1/me/requests/resume": {
+      "post": {
+        "tags": [
+          "Mis solicitudes"
+        ],
+        "summary": "Pide reanudar la jornada de hoy después de haberla cerrado (reinicio de actividades).",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitResumeCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/me/requests/{id}/cancel": {
       "post": {
         "tags": [
@@ -8222,7 +8252,8 @@
         "enum": [
           "RecordAdjustment",
           "Overtime",
-          "ShiftChange"
+          "ShiftChange",
+          "Resume"
         ]
       },
       "RequirementsDto": {
@@ -8257,6 +8288,45 @@
             ]
           }
         }
+      },
+      "ResumeDto": {
+        "required": [
+          "state",
+          "canResumeNow",
+          "blockedReason",
+          "resolverComment"
+        ],
+        "type": "object",
+        "properties": {
+          "state": {
+            "$ref": "#/components/schemas/ResumeState"
+          },
+          "canResumeNow": {
+            "type": "boolean"
+          },
+          "blockedReason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "resolverComment": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "Solo con la jornada de hoy cerrada. CanResumeNow dice si el teléfono puede\r\nreanudarla ya; si está aprobada pero no se puede, BlockedReason dice por qué."
+      },
+      "ResumeState": {
+        "enum": [
+          "None",
+          "Pending",
+          "Approved",
+          "Rejected"
+        ],
+        "description": "En qué va el reinicio de actividades de la jornada cerrada de hoy."
       },
       "RoleDto": {
         "required": [
@@ -9245,6 +9315,20 @@
           }
         }
       },
+      "SubmitResumeCommand": {
+        "required": [
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "SubmitShiftChangeCommand": {
         "required": [
           "days",
@@ -10116,7 +10200,8 @@
           "settings",
           "device",
           "overtimeUntil",
-          "autoCloseAt"
+          "autoCloseAt",
+          "resume"
         ],
         "type": "object",
         "properties": {
@@ -10211,6 +10296,16 @@
               "string"
             ],
             "format": "date-time"
+          },
+          "resume": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ResumeDto"
+              }
+            ]
           }
         }
       },

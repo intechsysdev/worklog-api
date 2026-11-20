@@ -45,6 +45,8 @@ public sealed record SubmitOvertimeCommand(DateOnly Date, TimeOnly From, TimeOnl
 
 public sealed record SubmitShiftChangeCommand(IReadOnlyList<ShiftChangeDayDto>? Days, string? Reason);
 
+public sealed record SubmitResumeCommand(string? Reason);
+
 public sealed record ResolveRequestCommand(string? Comment);
 
 public interface IRequestService
@@ -53,6 +55,7 @@ public interface IRequestService
     Task<OperationResult<RequestDto>> SubmitAdjustmentAsync(SubmitAdjustmentCommand command, CancellationToken ct = default);
     Task<OperationResult<RequestDto>> SubmitOvertimeAsync(SubmitOvertimeCommand command, CancellationToken ct = default);
     Task<OperationResult<RequestDto>> SubmitShiftChangeAsync(SubmitShiftChangeCommand command, CancellationToken ct = default);
+    Task<OperationResult<RequestDto>> SubmitResumeAsync(SubmitResumeCommand command, CancellationToken ct = default);
     Task<OperationResult<PagedResult<RequestDto>>> ListMineAsync(RequestStatus? status, PageRequest page, CancellationToken ct = default);
     Task<OperationResult<RequestDto>> CancelAsync(Guid id, CancellationToken ct = default);
 
@@ -124,6 +127,31 @@ internal sealed class RequestService(
             return OperationResult<RequestDto>.Invalid("Los cambios de turno son para hoy o días futuros.", "days");
 
         var created = WorkRequest.ShiftChangeRequest(actor.TenantId, actor.MemberId, days, command.Reason, clock.GetUtcNow());
+        return await SaveNewAsync(created, ct);
+    }
+
+    public async Task<OperationResult<RequestDto>> SubmitResumeAsync(SubmitResumeCommand command, CancellationToken ct = default)
+    {
+        var member = await members.FindAsync(actor.MemberId, ct);
+        var today = await TodayForAsync(member, ct);
+
+        var workday = await workdays.FindByDateAsync(actor.MemberId, today, ct);
+        if (workday is null)
+            return OperationResult<RequestDto>.Invalid("Hoy no tienes una jornada cerrada que reanudar.", null, "resume.no_workday");
+        if (workday.IsOpen)
+            return OperationResult<RequestDto>.Conflict("Tu jornada sigue abierta: no hace falta reanudarla.", "resume.open");
+
+        if (await IsClosedAsync(actor.MemberId, today, ct))
+            return OperationResult<RequestDto>.Conflict("El periodo de esa fecha ya está cerrado.", "period.closed");
+
+        var pending = await requests.ListAsync([actor.MemberId], today, today, RequestStatus.Pending, ct);
+        if (pending.Any(r => r.Type == RequestType.Resume && r.WorkdayId == workday.Id))
+        {
+            return OperationResult<RequestDto>.Conflict(
+                "Ya enviaste una solicitud de reinicio de actividades: espera la respuesta de tu supervisor.", "resume.pending");
+        }
+
+        var created = WorkRequest.ResumeRequest(actor.TenantId, actor.MemberId, today, workday.Id, command.Reason, clock.GetUtcNow());
         return await SaveNewAsync(created, ct);
     }
 
@@ -246,9 +274,29 @@ internal sealed class RequestService(
 
                 return Result.Success();
 
+            case RequestType.Resume:
+                // No cambia nada todavía: da permiso. La jornada se reanuda cuando la persona toca
+                // «Reanudar jornada» en la app, para que el tiempo cuente desde que vuelve.
+                return await ResumeBlockerAsync(request, ct) is { } blocker
+                    ? DomainError.Conflict("resume.not_applicable", blocker)
+                    : Result.Success();
+
             default:
                 return Result.Success();
         }
+    }
+
+    /// <summary>Por qué ya no tiene sentido aprobar un reinicio de actividades, o null si aplica.</summary>
+    private async Task<string?> ResumeBlockerAsync(WorkRequest request, CancellationToken ct)
+    {
+        var workday = request.WorkdayId is { } id ? await workdays.FindAsync(id, ct) : null;
+        if (workday is null) return "La jornada ya no existe.";
+        if (workday.IsOpen) return "La jornada ya está abierta: no hace falta reanudarla.";
+
+        var member = await members.FindAsync(request.MemberId, ct);
+        return workday.Date < await TodayForAsync(member, ct)
+            ? "La jornada es de un día anterior: ya no se puede reanudar."
+            : null;
     }
 
     private sealed record OvertimeLimits(int DayMinutes, int WeekMinutes, int DailyMax, int WeeklyMax);
@@ -323,6 +371,11 @@ internal sealed class RequestService(
                 var cap = (await parameters.ForBranchAsync(null, request.Date, ct))[ParameterKey.WeeklyCapHours] * 60;
                 if (proposed > cap) warnings.Add($"La semana pasaría el tope de {Hours(cap)}: el excedente sería extra.");
                 break;
+
+            case RequestType.Resume:
+                effects.Add("La persona podrá reanudar la jornada desde la app; el tiempo que estuvo cerrada no cuenta como trabajado.");
+                if (request.IsPending && await ResumeBlockerAsync(request, ct) is { } blocker) warnings.Add(blocker);
+                break;
         }
 
         return (effects, warnings);
@@ -363,6 +416,7 @@ internal sealed class RequestService(
     {
         RequestType.RecordAdjustment => "Ajuste de registro",
         RequestType.Overtime => "Horas extra",
+        RequestType.Resume => "Reinicio de actividades",
         _ => "Cambio de turno"
     };
 
@@ -371,6 +425,7 @@ internal sealed class RequestService(
         RequestType.RecordAdjustment =>
             $"{TargetLabel(r.Target)} {(r.OriginalValue is { } o ? Local(o) : "—")} → {(r.ProposedValue is { } p ? Local(p) : "—")} del {r.Date:dd/MM}",
         RequestType.Overtime => $"{r.OvertimeFrom:HH\\:mm}–{r.OvertimeTo:HH\\:mm} el {r.Date:dd/MM} ({Hours(r.OvertimeMinutes)})",
+        RequestType.Resume => $"Reanudar la jornada del {r.Date:dd/MM}",
         _ => string.Join(" y ", r.Days.Select(d => d.Start is null ? $"{d.Date:dd/MM} libre" : $"{d.Date:dd/MM} {d.Start:HH\\:mm}–{d.End:HH\\:mm}"))
     };
 

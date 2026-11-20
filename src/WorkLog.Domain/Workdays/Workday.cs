@@ -41,6 +41,7 @@ public sealed record WorkdayOpening(
 public sealed class Workday : TenantEntity
 {
     private readonly List<ActivityRecord> _activities = [];
+    private readonly List<WorkdayBreak> _breaks = [];
 
     private Workday()
     {
@@ -80,13 +81,19 @@ public sealed class Workday : TenantEntity
 
     public IReadOnlyList<ActivityRecord> Activities => _activities;
 
+    /// <summary>
+    /// Recesos: tramos en que la jornada estuvo cerrada antes de reanudarse el mismo día. No son
+    /// tiempo trabajado ni inactividad.
+    /// </summary>
+    public IReadOnlyList<WorkdayBreak> Breaks => _breaks;
+
     public bool IsOpen => Status == WorkdayStatus.Open;
 
     public ActivityRecord? CurrentActivity => _activities.LastOrDefault(a => a.IsOpen);
 
     /// <summary>Hora del último evento: ninguno nuevo puede quedar antes.</summary>
     public DateTimeOffset LastEventAt =>
-        _activities.Select(a => a.LastEventAt).Append(StartedAt).Append(EndedAt ?? StartedAt).Max();
+        _activities.Select(a => a.LastEventAt).Concat(_breaks.Select(b => b.EndedAt)).Append(StartedAt).Append(EndedAt ?? StartedAt).Max();
 
     public static Workday Start(WorkdayOpening opening, Guid? id = null) => new(opening.TenantId)
     {
@@ -170,6 +177,31 @@ public sealed class Workday : TenantEntity
         return Result.Success();
     }
 
+    /// <summary>
+    /// Reanuda una jornada cerrada (reinicio de actividades aprobado): vuelve a quedar abierta y el
+    /// tramo entre el cierre y este momento queda como receso.
+    /// </summary>
+    public Result Resume(DateTimeOffset at)
+    {
+        if (IsOpen || EndedAt is not { } closedAt)
+            return DomainError.Conflict("workday.open", "La jornada ya está abierta.");
+
+        if (at < closedAt)
+        {
+            return DomainError.Conflict("workday.out_of_order",
+                $"El evento es anterior al cierre de la jornada ({closedAt:HH\\:mm}).");
+        }
+
+        _breaks.Add(new WorkdayBreak(Id, closedAt, at));
+        EndedAt = null;
+        EndLocation = LocationColumns.Empty;
+        EndGeofence = GeofenceStatus.NotApplicable;
+        CloseKind = null;
+        Status = WorkdayStatus.Open;
+        Version++;
+        return Result.Success();
+    }
+
     private DomainError? EnsureAccepts(DateTimeOffset at)
     {
         if (!IsOpen)
@@ -185,8 +217,8 @@ public sealed class Workday : TenantEntity
     }
 
     /// <summary>
-    /// Tramos pagados: de inicio a fin (o hasta ahora) sin las pausas. El almuerzo se registra
-    /// como pausa, así que no cuenta.
+    /// Tramos pagados: de inicio a fin (o hasta ahora) sin las pausas ni los recesos. El almuerzo
+    /// se registra como pausa, así que no cuenta.
     /// </summary>
     public IReadOnlyList<(DateTimeOffset Start, DateTimeOffset End)> WorkedIntervals(DateTimeOffset now)
     {
@@ -194,10 +226,13 @@ public sealed class Workday : TenantEntity
         var result = new List<(DateTimeOffset, DateTimeOffset)>();
         var cursor = StartedAt;
 
-        foreach (var pause in _activities.SelectMany(a => a.Pauses).OrderBy(p => p.StartedAt))
+        var unpaid = _activities.SelectMany(a => a.Pauses).Select(p => (p.StartedAt, EndedAt: p.EndedAt ?? end))
+            .Concat(_breaks.Select(b => (b.StartedAt, b.EndedAt)))
+            .OrderBy(p => p.StartedAt);
+
+        foreach (var (pauseStart, pauseEnd) in unpaid)
         {
-            var pauseEnd = pause.EndedAt ?? end;
-            if (pause.StartedAt > cursor) result.Add((cursor, pause.StartedAt < end ? pause.StartedAt : end));
+            if (pauseStart > cursor) result.Add((cursor, pauseStart < end ? pauseStart : end));
             if (pauseEnd > cursor) cursor = pauseEnd;
         }
 
@@ -277,4 +312,23 @@ public sealed class Workday : TenantEntity
 
     private static Result NotFound() =>
         DomainError.NotFound("activity.not_found", "La actividad no pertenece a esta jornada.");
+}
+
+/// <summary>Receso de una jornada: del cierre a la reanudación del mismo día.</summary>
+public sealed class WorkdayBreak : Entity
+{
+    private WorkdayBreak()
+    {
+    }
+
+    internal WorkdayBreak(Guid workdayId, DateTimeOffset startedAt, DateTimeOffset endedAt)
+    {
+        WorkdayId = workdayId;
+        StartedAt = startedAt;
+        EndedAt = endedAt;
+    }
+
+    public Guid WorkdayId { get; private set; }
+    public DateTimeOffset StartedAt { get; private set; }
+    public DateTimeOffset EndedAt { get; private set; }
 }

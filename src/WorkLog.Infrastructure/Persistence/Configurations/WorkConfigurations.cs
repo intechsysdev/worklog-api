@@ -76,6 +76,10 @@ internal sealed class WorkdayConfiguration : IEntityTypeConfiguration<Workday>
         builder.HasMany(x => x.Activities).WithOne().HasForeignKey(a => a.WorkdayId).OnDelete(DeleteBehavior.Cascade);
         builder.Navigation(x => x.Activities).UsePropertyAccessMode(PropertyAccessMode.Field);
 
+        // Los recesos van siempre con la jornada: sin ellos el tiempo cerrado contaría como inactividad.
+        builder.HasMany(x => x.Breaks).WithOne().HasForeignKey(b => b.WorkdayId).OnDelete(DeleteBehavior.Cascade);
+        builder.Navigation(x => x.Breaks).UsePropertyAccessMode(PropertyAccessMode.Field).AutoInclude();
+
         // Una jornada por persona y día: también protege contra dos inicios simultáneos.
         builder.HasIndex(x => new { x.TenantId, x.MemberId, x.Date }).IsUnique();
         builder.HasIndex(x => new { x.TenantId, x.Date, x.Status });
@@ -117,6 +121,11 @@ internal sealed class ActivityRecordConfiguration : IEntityTypeConfiguration<Act
 internal sealed class ActivityPauseConfiguration : IEntityTypeConfiguration<ActivityPause>
 {
     public void Configure(EntityTypeBuilder<ActivityPause> builder) => builder.ToTable("ActivityPauses");
+}
+
+internal sealed class WorkdayBreakConfiguration : IEntityTypeConfiguration<WorkdayBreak>
+{
+    public void Configure(EntityTypeBuilder<WorkdayBreak> builder) => builder.ToTable("WorkdayBreaks");
 }
 
 internal sealed class LocationPointConfiguration : IEntityTypeConfiguration<LocationPoint>

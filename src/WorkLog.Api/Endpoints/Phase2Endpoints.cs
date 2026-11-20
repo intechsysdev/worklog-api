@@ -55,6 +55,10 @@ public static class Phase2Endpoints
                 (await requests.SubmitShiftChangeAsync(command, ct)).ToCreatedResult(r => $"/api/v1/me/requests/{r.Id}"))
             .Produces<RequestDto>(201).WithSummary("Pide cambiar el turno de uno o varios días.");
 
+        me.MapPost("/requests/resume", async (SubmitResumeCommand command, IRequestService requests, CancellationToken ct) =>
+                (await requests.SubmitResumeAsync(command, ct)).ToCreatedResult(r => $"/api/v1/me/requests/{r.Id}"))
+            .Produces<RequestDto>(201).WithSummary("Pide reanudar la jornada de hoy después de haberla cerrado (reinicio de actividades).");
+
         me.MapPost("/requests/{id:guid}/cancel", async (Guid id, IRequestService requests, CancellationToken ct) =>
                 (await requests.CancelAsync(id, ct)).ToHttpResult())
             .Produces<RequestDto>().WithSummary("Cancela una solicitud pendiente propia.");

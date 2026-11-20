@@ -11,7 +11,10 @@ public enum RequestType
     Overtime = 2,
 
     /// <summary>Cambiar el turno de uno o varios días.</summary>
-    ShiftChange = 3
+    ShiftChange = 3,
+
+    /// <summary>Reinicio de actividades: volver a trabajar el mismo día después de cerrar la jornada.</summary>
+    Resume = 4
 }
 
 public enum RequestStatus
@@ -36,7 +39,8 @@ public sealed record ShiftChangeDay(DateOnly Date, TimeOnly? Start, TimeOnly? En
 
 /// <summary>
 /// Solicitud que el usuario envía desde la app y aprueba su supervisor. Al aprobarse produce su
-/// efecto (corrige la jornada, autoriza horas extra o crea cambios puntuales de turno).
+/// efecto (corrige la jornada, autoriza horas extra, crea cambios puntuales de turno o permite
+/// reanudar la jornada cerrada).
 /// </summary>
 public sealed class WorkRequest : TenantEntity
 {
@@ -135,6 +139,10 @@ public sealed class WorkRequest : TenantEntity
         return Create(tenantId, memberId, RequestType.ShiftChange, days.Min(d => d.Date), reason, at,
             r => r._days.AddRange(days.OrderBy(d => d.Date)));
     }
+
+    /// <summary>Reinicio de actividades de la jornada cerrada de ese día.</summary>
+    public static Result<WorkRequest> ResumeRequest(Guid tenantId, Guid memberId, DateOnly date, Guid workdayId, string? reason, DateTimeOffset at) =>
+        Create(tenantId, memberId, RequestType.Resume, date, reason, at, r => r.WorkdayId = workdayId);
 
     public Result Approve(Guid approverId, string? comment, DateTimeOffset at)
     {

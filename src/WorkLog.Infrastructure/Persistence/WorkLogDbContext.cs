@@ -43,6 +43,7 @@ public sealed class WorkLogDbContext(DbContextOptions<WorkLogDbContext> options,
     public DbSet<Workday> Workdays => Set<Workday>();
     public DbSet<ActivityRecord> ActivityRecords => Set<ActivityRecord>();
     public DbSet<ActivityPause> ActivityPauses => Set<ActivityPause>();
+    public DbSet<WorkdayBreak> WorkdayBreaks => Set<WorkdayBreak>();
     public DbSet<LocationPoint> LocationPoints => Set<LocationPoint>();
     public DbSet<Evidence> Evidences => Set<Evidence>();
     public DbSet<ParameterValue> ParameterValues => Set<ParameterValue>();

@@ -139,7 +139,26 @@ public sealed record TodayDto(
     ClientSettingsDto Settings,
     DeviceStatusDto Device,
     TimeOnly? OvertimeUntil,
-    DateTimeOffset? AutoCloseAt);
+    DateTimeOffset? AutoCloseAt,
+    ResumeDto? Resume);
+
+/// <summary>En qué va el reinicio de actividades de la jornada cerrada de hoy.</summary>
+public enum ResumeState
+{
+    /// <summary>No hay solicitud vigente: se puede pedir.</summary>
+    None = 0,
+    Pending = 1,
+
+    /// <summary>Aprobada después del cierre: la jornada se puede reanudar.</summary>
+    Approved = 2,
+    Rejected = 3
+}
+
+/// <summary>
+/// Solo con la jornada de hoy cerrada. <paramref name="CanResumeNow"/> dice si el teléfono puede
+/// reanudarla ya; si está aprobada pero no se puede, <paramref name="BlockedReason"/> dice por qué.
+/// </summary>
+public sealed record ResumeDto(ResumeState State, bool CanResumeNow, string? BlockedReason, string? ResolverComment);
 
 /// <summary>Control de apps por MobiControl para el kiosco y el aviso de fin de turno.</summary>
 public sealed record DeviceStatusDto(

@@ -50,10 +50,11 @@ public static class WorkdayTimeline
         var end = workday.EndedAt ?? now;
         var segments = new List<TimelineSegment>();
         var cursor = workday.StartedAt;
+        var breaks = workday.Breaks.OrderBy(b => b.StartedAt).ToList();
 
         foreach (var activity in workday.Activities.OrderBy(a => a.StartedAt))
         {
-            AddIdle(segments, cursor, activity.StartedAt);
+            AddIdle(segments, cursor, activity.StartedAt, breaks);
 
             var activityEnd = activity.EndedAt ?? end;
             segments.Add(new TimelineSegment(
@@ -70,7 +71,7 @@ public static class WorkdayTimeline
         }
 
         // Hueco final: solo si no hay nada en curso (si lo hay, el cursor ya llegó al final).
-        AddIdle(segments, cursor, end);
+        AddIdle(segments, cursor, end, breaks);
 
         var byClass = workday.Activities
             .GroupBy(a => a.TimeClass)
@@ -83,12 +84,26 @@ public static class WorkdayTimeline
             UnproductiveMinutes: byClass.GetValueOrDefault(TimeClass.Unproductive),
             IdleMinutes: segments.Where(s => s.Kind == SegmentKind.Idle).Sum(s => s.Minutes),
             PausedMinutes: workday.Activities.Sum(a => Minutes(a.PausedTime(a.EndedAt ?? end))),
-            ElapsedMinutes: Minutes(end - workday.StartedAt));
+            ElapsedMinutes: Minutes(end - workday.StartedAt - breaks.Aggregate(TimeSpan.Zero, (total, b) => total + (b.EndedAt - b.StartedAt))));
 
         return (segments, summary);
     }
 
-    private static void AddIdle(List<TimelineSegment> segments, DateTimeOffset from, DateTimeOffset to)
+    /// <summary>El hueco entre dos registros es inactividad, salvo lo que cae en un receso.</summary>
+    private static void AddIdle(List<TimelineSegment> segments, DateTimeOffset from, DateTimeOffset to, IReadOnlyList<WorkdayBreak> breaks)
+    {
+        var cursor = from;
+        foreach (var pause in breaks)
+        {
+            if (pause.EndedAt <= cursor || pause.StartedAt >= to) continue;
+            AddGap(segments, cursor, pause.StartedAt);
+            cursor = pause.EndedAt;
+        }
+
+        AddGap(segments, cursor, to);
+    }
+
+    private static void AddGap(List<TimelineSegment> segments, DateTimeOffset from, DateTimeOffset to)
     {
         if (to - from < MinGap) return;
         segments.Add(new TimelineSegment(SegmentKind.Idle, from, to, Minutes(to - from), "Sin actividad", IdleColor, null, null));
