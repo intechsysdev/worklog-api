@@ -616,7 +616,11 @@ internal sealed class MyWorkdayService(
         var plan = await calculator.PlanAsync(context.Member, today, ct);
         var p = context.Parameters;
 
-        var workday = context.Open ?? await workdays.FindByDateAsync(context.Member.Id, today, ct);
+        // Una jornada de un día anterior que quedó abierta no es la de hoy: el día nuevo se puede
+        // iniciar (al iniciarlo se cierra la vieja al fin de su turno, ver CloseForgotten).
+        var workday = context.Open is { } open && open.Date >= today
+            ? open
+            : await workdays.FindByDateAsync(context.Member.Id, today, ct);
 
         StartWindowDto? window = null;
         if (ShiftWindow.For(plan, context.TimeZone, p[ParameterKey.EarlyStartMinutes]) is { } shift)
